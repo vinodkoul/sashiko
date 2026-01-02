@@ -1,6 +1,7 @@
 mod baseline;
 mod db;
 mod events;
+mod git_ops;
 mod ingestor;
 mod nntp;
 mod patch;
