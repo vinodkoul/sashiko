@@ -1,3 +1,5 @@
+mod ai;
+mod api;
 mod baseline;
 mod db;
 mod events;
@@ -11,6 +13,7 @@ use db::Database;
 use events::Event;
 use ingestor::Ingestor;
 use settings::Settings;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{error, info};
 
@@ -38,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Settings: {:?}", settings);
 
     // Initialize Database
-    let db = Database::new(&settings.database).await?;
+    let db = Arc::new(Database::new(&settings.database).await?);
     db.migrate().await?;
 
     // Create internal task queue
@@ -53,10 +56,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Start Ingestor
-    let ingestor = Ingestor::new(settings, db, tx);
+    let ingestor = Ingestor::new(settings.clone(), db.clone(), tx);
     tokio::spawn(async move {
         if let Err(e) = ingestor.run().await {
             error!("Ingestor fatal error: {}", e);
+        }
+    });
+
+    // Start Web API
+    let api_settings = settings.server.clone();
+    let api_db = db.clone();
+    tokio::spawn(async move {
+        if let Err(e) = api::run_server(api_settings, api_db).await {
+            error!("Web API fatal error: {}", e);
         }
     });
 

@@ -1,14 +1,14 @@
-use config::{Config, ConfigError, Environment, File};
+use config::{Config, ConfigError, File, Environment};
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[allow(unused)]
 pub struct DatabaseSettings {
     pub url: String,
     pub token: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[allow(unused)]
 pub struct NntpSettings {
     pub server: String,
@@ -16,7 +16,7 @@ pub struct NntpSettings {
     pub groups: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[allow(unused)]
 pub struct AiSettings {
     pub provider: String,
@@ -24,27 +24,34 @@ pub struct AiSettings {
     pub api_key: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[allow(unused)]
 pub struct ServerSettings {
     pub host: String,
     pub port: u16,
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum IngestionMode {
     Nntp,
     LocalArchive,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[allow(unused)]
 pub struct ArchiveSettings {
     pub path: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
+#[allow(unused)]
+pub struct IngestorSettings {
+    pub mode: IngestionMode,
+    pub archive: Option<ArchiveSettings>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 #[allow(unused)]
 pub struct Settings {
     pub database: DatabaseSettings,
@@ -52,13 +59,6 @@ pub struct Settings {
     pub ai: AiSettings,
     pub server: ServerSettings,
     pub ingestion: IngestorSettings,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(unused)]
-pub struct IngestorSettings {
-    pub mode: IngestionMode,
-    pub archive: Option<ArchiveSettings>,
 }
 
 impl Settings {

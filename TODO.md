@@ -26,7 +26,7 @@
 - [ ] Implement consensus/comparison logic for multiple LLM runs.
 
 ## Phase 4: Web API & Frontend
-- [ ] Build Axum REST API for patches, reviews, and stats.
+- [x] Build Axum REST API for patches, reviews, and stats.
 - [ ] Implement RBAC (Role-Based Access Control) for API endpoints.
 - [ ] Implement minimalistic "kernel.org style" frontend (Raw HTML/JS/CSS).
 - [ ] Add UI for re-running reviews and manual baseline overrides.

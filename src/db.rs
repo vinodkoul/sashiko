@@ -1,10 +1,21 @@
 use crate::settings::DatabaseSettings;
 use anyhow::Result;
 use libsql::Builder;
+use serde::Serialize;
 use tracing::info;
 
 pub struct Database {
     pub conn: libsql::Connection,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PatchsetRow {
+    pub id: i64,
+    pub message_id: String,
+    pub subject: Option<String>,
+    pub author: Option<String>,
+    pub date: Option<i64>,
+    pub status: Option<String>,
 }
 
 impl Database {
@@ -66,5 +77,25 @@ impl Database {
             )
             .await?;
         Ok(())
+    }
+
+    pub async fn get_patchsets(&self, limit: i32) -> Result<Vec<PatchsetRow>> {
+        let mut rows = self.conn.query(
+            "SELECT id, message_id, subject, author, date, status FROM patchsets ORDER BY date DESC LIMIT ?",
+            libsql::params![limit],
+        ).await?;
+
+        let mut patchsets = Vec::new();
+        while let Ok(Some(row)) = rows.next().await {
+            patchsets.push(PatchsetRow {
+                id: row.get(0)?,
+                message_id: row.get(1)?,
+                subject: row.get(2).ok(),
+                author: row.get(3).ok(),
+                date: row.get(4).ok(),
+                status: row.get(5).ok(),
+            });
+        }
+        Ok(patchsets)
     }
 }

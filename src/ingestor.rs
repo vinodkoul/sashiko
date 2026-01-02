@@ -3,6 +3,7 @@ use crate::events::Event;
 use crate::nntp::NntpClient;
 use crate::settings::{IngestionMode, Settings};
 use anyhow::{anyhow, Result};
+use std::sync::Arc;
 use tokio::process::Command;
 use tokio::sync::mpsc::Sender;
 use tokio::time::{Duration, sleep};
@@ -10,12 +11,12 @@ use tracing::{error, info, warn};
 
 pub struct Ingestor {
     settings: Settings,
-    db: Database,
+    db: Arc<Database>,
     sender: Sender<Event>,
 }
 
 impl Ingestor {
-    pub fn new(settings: Settings, db: Database, sender: Sender<Event>) -> Self {
+    pub fn new(settings: Settings, db: Arc<Database>, sender: Sender<Event>) -> Self {
         Self {
             settings,
             db,
