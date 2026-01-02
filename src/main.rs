@@ -33,12 +33,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _cli = Cli::parse();
 
     // Initialize tracing with EnvFilter, defaulting to "info" if RUST_LOG is not set
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
-    fmt()
-        .with_env_filter(env_filter)
-        .init();
+    fmt().with_env_filter(env_filter).init();
 
     info!("Starting Sashiko...");
 
@@ -54,8 +51,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    info!("Settings: {:?}", settings);
-
     // Initialize Database
     let db = Arc::new(Database::new(&settings.database).await?);
     db.migrate().await?;
@@ -67,7 +62,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         info!("Worker started");
         while let Some(event) = rx.recv().await {
-            info!("Worker received event: {:?}", event);
+            match event {
+                Event::ArticleFetched {
+                    group, article_id, ..
+                } => {
+                    info!(
+                        "Worker received ArticleFetched: group={}, id={}",
+                        group, article_id
+                    );
+                }
+            }
         }
     });
 
