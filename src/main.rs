@@ -58,22 +58,83 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create internal task queue
     let (tx, mut rx) = mpsc::channel::<Event>(100);
 
-    // Spawn Worker (Placeholder)
-    tokio::spawn(async move {
-        info!("Worker started");
-        while let Some(event) = rx.recv().await {
-            match event {
-                Event::ArticleFetched {
-                    group, article_id, ..
-                } => {
-                    info!(
-                        "Worker received ArticleFetched: group={}, id={}",
-                        group, article_id
-                    );
+        // Spawn Worker (Placeholder)
+
+        tokio::spawn(async move {
+
+            info!("Worker started");
+
+            while let Some(event) = rx.recv().await {
+
+                match event {
+
+                    Event::ArticleFetched {
+
+                        group,
+
+                        article_id,
+
+                        content,
+
+                        raw,
+
+                    } => {
+
+                        let raw_bytes = match raw {
+
+                            Some(b) => b,
+
+                            None => content.join("\n").into_bytes(),
+
+                        };
+
+    
+
+                        match crate::patch::parse_email(&raw_bytes) {
+
+                            Ok((metadata, _)) => {
+
+                                let subject = if metadata.subject.len() > 80 {
+
+                                    format!("{}...", &metadata.subject[..77])
+
+                                } else {
+
+                                    metadata.subject.clone()
+
+                                };
+
+                                info!(
+
+                                    "Article: group={}, id={}, author={}, subject=\"{}\"",
+
+                                    group, article_id, metadata.author, subject
+
+                                );
+
+                            }
+
+                            Err(e) => {
+
+                                info!(
+
+                                    "Article (parse failed): group={}, id={}, error={}",
+
+                                    group, article_id, e
+
+                                );
+
+                            }
+
+                        }
+
+                    }
+
                 }
+
             }
-        }
-    });
+
+        });
 
     // Start Ingestor
     let ingestor = Ingestor::new(settings.clone(), db.clone(), tx);

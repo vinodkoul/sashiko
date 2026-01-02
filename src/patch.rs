@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use mail_parser::{HeaderValue, MessageParser};
 use regex::Regex;
 use std::sync::OnceLock;
@@ -25,7 +25,6 @@ pub struct Patch {
     pub part_index: u32,
 }
 
-#[allow(dead_code)]
 pub fn parse_email(raw_email: &[u8]) -> Result<(PatchsetMetadata, Option<Patch>)> {
     let message = MessageParser::default()
         .parse(raw_email)
