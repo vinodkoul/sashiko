@@ -1,14 +1,3 @@
-DROP TABLE IF EXISTS patches;
-DROP TABLE IF EXISTS reviews;
-DROP TABLE IF EXISTS comments;
-DROP TABLE IF EXISTS patchsets;
-DROP TABLE IF EXISTS messages;
-DROP TABLE IF EXISTS threads;
--- We can keep mailing_lists, baselines, ai_interactions if they haven't changed much, but safer to drop all if we are redefining relationships.
-DROP TABLE IF EXISTS mailing_lists;
-DROP TABLE IF EXISTS baselines;
-DROP TABLE IF EXISTS ai_interactions;
-
 CREATE TABLE IF NOT EXISTS mailing_lists (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
