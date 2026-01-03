@@ -72,13 +72,6 @@
                         <tbody>
                             ${data.reviews.map(r => {
                                 const rDate = r.created_at ? new Date(r.created_at * 1000).toLocaleString() : '-';
-                                // Input/Output links. Since we don't have separate endpoints for content yet,
-                                // we can't link them easily unless we construct data URIs or implement endpoints.
-                                // For now, let's assume we implement endpoints later or show "N/A".
-                                // Actually, the prompt says "link to input, link to result".
-                                // We fetched the content in `get_patchset_details`.
-                                // We can put it in a data URI or a simple "view" mechanism.
-                                // Let's use simple data URI for text viewing.
                                 const inputLink = r.input ? `<a href="data:text/plain;charset=utf-8,${encodeURIComponent(r.input)}" target="_blank">Input</a>` : '-';
                                 const outputLink = r.output ? `<a href="data:text/plain;charset=utf-8,${encodeURIComponent(r.output)}" target="_blank">Result</a>` : '-';
                                 return `
@@ -98,6 +91,46 @@
                 reviewsHtml = '<p>No AI reviews yet.</p>';
             }
 
+            let patchesHtml = '';
+            if (data.patches && data.patches.length > 0) {
+                 patchesHtml = `
+                    <ul>
+                        ${data.patches.map(p => `<li>Part ${p.part_index}: ${p.message_id}</li>`).join('')}
+                    </ul>
+                 `;
+            } else {
+                patchesHtml = '<p>No patches found.</p>';
+            }
+
+            let threadHtml = '';
+            if (data.thread && data.thread.length > 0) {
+                threadHtml = `
+                    <table class="reviews-table">
+                         <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Author</th>
+                                <th>Subject</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.thread.map(m => {
+                                const mDate = m.date ? new Date(m.date * 1000).toLocaleString() : '-';
+                                return `
+                                    <tr>
+                                        <td>${mDate}</td>
+                                        <td>${m.author || 'unknown'}</td>
+                                        <td>${m.subject || '(no subject)'}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                `;
+            } else {
+                threadHtml = '<p>No thread history found.</p>';
+            }
+
             const baselineHtml = data.baseline ? `
                 <div class="kv"><div class="label">Repo URL:</div><div>${data.baseline.repo_url || '-'}</div></div>
                 <div class="kv"><div class="label">Branch:</div><div>${data.baseline.branch || '-'}</div></div>
@@ -107,7 +140,7 @@
             document.getElementById('content').innerHTML = `
                 <div class="section">
                     <h2>Metadata</h2>
-                    <div class="kv"><div class="label">Message ID:</div><div>${data.id} <button class="copy-btn" onclick="copyToClipboard('${data.id}')">📋</button></div></div>
+                    <div class="kv"><div class="label">Message ID:</div><div>${data.message_id || '-'} <button class="copy-btn" onclick="copyToClipboard('${data.message_id}')">📋</button></div></div>
                     <div class="kv"><div class="label">Subject:</div><div>${data.subject || '(no subject)'}</div></div>
                     <div class="kv"><div class="label">Author:</div><div>${data.author || 'unknown'}</div></div>
                     <div class="kv"><div class="label">Date:</div><div>${date}</div></div>
@@ -119,6 +152,16 @@
                 <div class="section">
                     <h2>Git Baseline</h2>
                     ${baselineHtml}
+                </div>
+
+                <div class="section">
+                    <h2>Patches</h2>
+                    ${patchesHtml}
+                </div>
+
+                <div class="section">
+                    <h2>Thread History</h2>
+                    ${threadHtml}
                 </div>
 
                 <div class="section">

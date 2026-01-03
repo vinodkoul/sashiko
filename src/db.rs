@@ -80,48 +80,39 @@ impl Database {
         Ok(())
     }
 
-    pub async fn get_patchset_version(&self, message_id: &str) -> Result<Option<i32>> {
-        let mut rows = self
-            .conn
-            .query(
-                "SELECT parser_version FROM patchsets WHERE cover_letter_message_id = ?",
-                libsql::params![message_id],
+
+
+    pub async fn create_thread(
+        &self,
+        root_message_id: &str,
+        subject: &str,
+        date: i64,
+    ) -> Result<i64> {
+        self.conn
+            .execute(
+                "INSERT INTO threads (root_message_id, subject, last_updated) VALUES (?, ?, ?)",
+                libsql::params![root_message_id, subject, date],
             )
             .await?;
 
-        if let Ok(Some(row)) = rows.next().await {
-            let ver: Option<i32> = row.get(0).ok();
-            Ok(ver)
-        } else {
-            Ok(None)
-        }
-    }
-
-    pub async fn create_thread(&self, root_message_id: &str, subject: &str, date: i64) -> Result<i64> {
-        self.conn.execute(
-            "INSERT INTO threads (root_message_id, subject, last_updated) VALUES (?, ?, ?)",
-            libsql::params![root_message_id, subject, date],
-        ).await?;
-        
         let mut rows = self.conn.query("SELECT last_insert_rowid()", ()).await?;
         if let Ok(Some(row)) = rows.next().await {
             Ok(row.get(0)?)
         } else {
-             Err(anyhow::anyhow!("Failed to get thread ID"))
+            Err(anyhow::anyhow!("Failed to get thread ID"))
         }
     }
 
-    pub async fn get_thread_id_by_root(&self, root_message_id: &str) -> Result<Option<i64>> {
-         let mut rows = self.conn.query("SELECT id FROM threads WHERE root_message_id = ?", libsql::params![root_message_id]).await?;
-        if let Ok(Some(row)) = rows.next().await {
-            Ok(Some(row.get(0)?))
-        } else {
-            Ok(None)
-        }
-    }
-    
+
+
     pub async fn get_thread_id_for_message(&self, message_id: &str) -> Result<Option<i64>> {
-         let mut rows = self.conn.query("SELECT thread_id FROM messages WHERE message_id = ?", libsql::params![message_id]).await?;
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT thread_id FROM messages WHERE message_id = ?",
+                libsql::params![message_id],
+            )
+            .await?;
         if let Ok(Some(row)) = rows.next().await {
             Ok(Some(row.get(0)?))
         } else {
@@ -129,8 +120,17 @@ impl Database {
         }
     }
 
-    pub async fn create_message(&self, message_id: &str, thread_id: i64, in_reply_to: Option<&str>, author: &str, subject: &str, date: i64, body: &str) -> Result<()> {
-         self.conn.execute(
+    pub async fn create_message(
+        &self,
+        message_id: &str,
+        thread_id: i64,
+        in_reply_to: Option<&str>,
+        author: &str,
+        subject: &str,
+        date: i64,
+        body: &str,
+    ) -> Result<()> {
+        self.conn.execute(
             "INSERT OR IGNORE INTO messages (message_id, thread_id, in_reply_to, author, subject, date, body) VALUES (?, ?, ?, ?, ?, ?, ?)",
             libsql::params![message_id, thread_id, in_reply_to, author, subject, date, body],
         ).await?;
@@ -175,16 +175,22 @@ impl Database {
         cc: &str,
         baseline_id: Option<i64>,
     ) -> Result<i64> {
-         let mut rows = self.conn.query("SELECT id FROM patchsets WHERE thread_id = ?", libsql::params![thread_id]).await?;
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT id FROM patchsets WHERE thread_id = ?",
+                libsql::params![thread_id],
+            )
+            .await?;
         if let Ok(Some(row)) = rows.next().await {
             let id: i64 = row.get(0)?;
-             self.conn.execute(
+            self.conn.execute(
                 "UPDATE patchsets SET subject = ?, author = ?, date = ?, total_parts = ?, parser_version = ?, to_recipients = ?, cc_recipients = ?, baseline_id = ? WHERE id = ?",
                 libsql::params![subject, author, date, total_parts, parser_version, to, cc, baseline_id, id],
             ).await?;
             return Ok(id);
         }
-        
+
         self.conn
             .execute(
                 "INSERT INTO patchsets (thread_id, cover_letter_message_id, subject, author, date, total_parts, received_parts, status, parser_version, to_recipients, cc_recipients, baseline_id) 
@@ -195,10 +201,7 @@ impl Database {
 
         let mut rows = self
             .conn
-            .query(
-                "SELECT last_insert_rowid()",
-                libsql::params![],
-            )
+            .query("SELECT last_insert_rowid()", libsql::params![])
             .await?;
         if let Ok(Some(row)) = rows.next().await {
             let id: i64 = row.get(0)?;
@@ -221,11 +224,13 @@ impl Database {
             "INSERT INTO patches (patchset_id, message_id, part_index, diff) VALUES (?, ?, ?, ?)",
             libsql::params![patchset_id, message_id, part_index, diff]
         ).await?;
-        
-        self.conn.execute(
-             "UPDATE patchsets SET received_parts = received_parts + 1 WHERE id = ?",
-             libsql::params![patchset_id]
-        ).await?;
+
+        self.conn
+            .execute(
+                "UPDATE patchsets SET received_parts = received_parts + 1 WHERE id = ?",
+                libsql::params![patchset_id],
+            )
+            .await?;
         Ok(())
     }
 
@@ -251,7 +256,10 @@ impl Database {
     }
 
     pub async fn count_patchsets(&self) -> Result<usize> {
-        let mut rows = self.conn.query("SELECT COUNT(*) FROM patchsets", libsql::params![]).await?;
+        let mut rows = self
+            .conn
+            .query("SELECT COUNT(*) FROM patchsets", libsql::params![])
+            .await?;
         if let Ok(Some(row)) = rows.next().await {
             let count: i64 = row.get(0)?;
             Ok(count as usize)
@@ -266,7 +274,7 @@ impl Database {
     ) -> Result<Option<serde_json::Value>> {
         let mut rows = self.conn.query(
             "SELECT p.id, p.subject, p.status, p.to_recipients, p.cc_recipients, 
-                    b.repo_url, b.branch, b.last_known_commit, p.author, p.date, p.cover_letter_message_id
+                    b.repo_url, b.branch, b.last_known_commit, p.author, p.date, p.cover_letter_message_id, p.thread_id
              FROM patchsets p 
              LEFT JOIN baselines b ON p.baseline_id = b.id
              WHERE p.id = ?",
@@ -285,7 +293,9 @@ impl Database {
             let author: Option<String> = row.get(8).ok();
             let date: Option<i64> = row.get(9).ok();
             let mid: Option<String> = row.get(10).ok();
+            let thread_id: Option<i64> = row.get(11).ok();
 
+            // Fetch reviews
             let mut reviews = Vec::new();
             let mut rev_rows = self
                 .conn
@@ -308,6 +318,37 @@ impl Database {
                 }));
             }
 
+            // Fetch patches
+            let mut patches = Vec::new();
+            let mut patch_rows = self.conn.query(
+                "SELECT id, message_id, part_index FROM patches WHERE patchset_id = ? ORDER BY part_index ASC",
+                libsql::params![pid]
+            ).await?;
+            while let Ok(Some(p)) = patch_rows.next().await {
+                patches.push(serde_json::json!({
+                    "id": p.get::<i64>(0)?,
+                    "message_id": p.get::<String>(1)?,
+                    "part_index": p.get::<Option<i64>>(2).ok(),
+                }));
+            }
+
+            // Fetch thread messages
+            let mut messages = Vec::new();
+            if let Some(tid) = thread_id {
+                let mut msg_rows = self.conn.query(
+                    "SELECT message_id, author, date, subject FROM messages WHERE thread_id = ? ORDER BY date ASC",
+                    libsql::params![tid]
+                ).await?;
+                while let Ok(Some(m)) = msg_rows.next().await {
+                     messages.push(serde_json::json!({
+                        "message_id": m.get::<String>(0)?,
+                        "author": m.get::<Option<String>>(1).ok(),
+                        "date": m.get::<Option<i64>>(2).ok(),
+                        "subject": m.get::<Option<String>>(3).ok(),
+                    }));
+                }
+            }
+
             Ok(Some(serde_json::json!({
                 "id": pid,
                 "message_id": mid,
@@ -322,7 +363,9 @@ impl Database {
                     "branch": branch,
                     "commit": commit,
                 },
-                "reviews": reviews
+                "reviews": reviews,
+                "patches": patches,
+                "thread": messages
             })))
         } else {
             Ok(None)
