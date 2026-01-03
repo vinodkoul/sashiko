@@ -3,6 +3,7 @@ use crate::events::Event;
 use crate::nntp::NntpClient;
 use crate::settings::Settings;
 use anyhow::{Result, anyhow};
+use serde_json::Value;
 use std::process::Stdio;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -58,19 +59,25 @@ impl Ingestor {
 
     async fn run_git_bootstrap(&self, n: usize) -> Result<()> {
         for group in &self.settings.nntp.groups {
-            let (url, path) = self.resolve_git_info(group);
-            info!("Bootstrapping group {} from {} to {:?}", group, url, path);
+            match self.resolve_git_info(group).await {
+                Ok((url, path)) => {
+                    info!("Bootstrapping group {} from {} to {:?}", group, url, path);
 
-            if let Err(e) = self.bootstrap_repo(&url, &path, n).await {
-                error!("Failed to bootstrap group {}: {}", group, e);
-            } else if let Err(e) = self.ingest_git_objects(&path, Some(n)).await {
-                error!("Failed to ingest objects for group {}: {}", group, e);
+                    if let Err(e) = self.bootstrap_repo(&url, &path, n).await {
+                        error!("Failed to bootstrap group {}: {}", group, e);
+                    } else if let Err(e) = self.ingest_git_objects(&path, Some(n)).await {
+                        error!("Failed to ingest objects for group {}: {}", group, e);
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to resolve git info for group {}: {}", group, e);
+                }
             }
         }
         Ok(())
     }
 
-    fn resolve_git_info(&self, group: &str) -> (String, std::path::PathBuf) {
+    async fn resolve_git_info(&self, group: &str) -> Result<(String, std::path::PathBuf)> {
         // Dynamic path: archives/<group_name>
         let path = std::path::PathBuf::from("archives").join(group);
 
@@ -84,11 +91,64 @@ impl Ingestor {
             group.split('.').next_back().unwrap_or(group)
         };
 
-        // We assume the standard lore.kernel.org structure.
-        // Using 0.git as a safe default entry point for cloning.
-        let url = format!("https://lore.kernel.org/{}/0.git", list_id);
+        let url = self.find_latest_epoch(list_id).await?;
 
-        (url, path)
+        Ok((url, path))
+    }
+
+    async fn find_latest_epoch(&self, list_id: &str) -> Result<String> {
+        info!("Fetching manifest to find latest epoch for {}", list_id);
+
+        let output = Command::new("bash")
+            .arg("-c")
+            .arg("curl -s https://lore.kernel.org/manifest.js.gz | gunzip")
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            return Err(anyhow!("Failed to fetch manifest"));
+        }
+
+        let json: Value = serde_json::from_slice(&output.stdout)?;
+        let map = json
+            .as_object()
+            .ok_or_else(|| anyhow!("Manifest is not a JSON object"))?;
+
+        let mut max_epoch = -1;
+        let mut best_url = String::new();
+
+        // Pattern: /list_id/git/N.git
+        let prefix = format!("/{}/git/", list_id);
+
+        for (key, _val) in map {
+            if key.starts_with(&prefix) && key.ends_with(".git") {
+                // extract N
+                // key looks like /lkml/git/0.git
+                // suffix is 0
+                let suffix = &key[prefix.len()..key.len() - 4];
+                if let Ok(epoch) = suffix.parse::<i32>() {
+                    if epoch > max_epoch {
+                        max_epoch = epoch;
+                        best_url = format!("https://lore.kernel.org{}", key);
+                    }
+                }
+            }
+        }
+
+        if max_epoch == -1 {
+            // Fallback to 0.git if nothing found
+            warn!(
+                "Could not find any epochs for {}, defaulting to 0.git",
+                list_id
+            );
+            return Ok(format!("https://lore.kernel.org/{}/0.git", list_id));
+        }
+
+        info!(
+            "Found latest epoch {} for {}: {}",
+            max_epoch, list_id, best_url
+        );
+        Ok(best_url)
     }
 
     async fn bootstrap_repo(&self, url: &str, path: &std::path::Path, n: usize) -> Result<()> {
