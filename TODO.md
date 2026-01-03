@@ -17,6 +17,7 @@
 - [x] **Task**: Download `lore.kernel.org` git archive (e.g., 2025 emails) for offline testing.
 - [x] **Task**: Implement file-based/git-based ingestor to process downloaded archives.
 - [x] **Task**: Add configuration option to disable NNTP and use local archives.
+- [x] **Task**: Implement automatic git archive bootstrapping with `--n-last`.
 - [x] Implement patchset assembly (handling multi-part messages).
 
 ## Phase 3: AI Logic & Interaction Tracking (Deferred)

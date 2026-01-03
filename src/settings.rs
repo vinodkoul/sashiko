@@ -42,6 +42,7 @@ pub enum IngestionMode {
 #[allow(unused)]
 pub struct ArchiveSettings {
     pub path: String,
+    pub url: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
