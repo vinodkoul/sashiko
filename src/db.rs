@@ -79,6 +79,17 @@ impl Database {
         Ok(())
     }
 
+    pub async fn message_exists(&self, message_id: &str) -> Result<bool> {
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT 1 FROM patchsets WHERE message_id = ?",
+                libsql::params![message_id],
+            )
+            .await?;
+        Ok(rows.next().await?.is_some())
+    }
+
     pub async fn create_patchset(
         &self,
         message_id: &str,

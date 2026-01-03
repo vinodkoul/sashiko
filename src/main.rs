@@ -82,6 +82,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     match crate::patch::parse_email(&raw_bytes) {
                         Ok((metadata, patch_opt)) => {
+                            // Check for duplicates
+                            if let Ok(true) = worker_db.message_exists(&metadata.message_id).await {
+                                info!("Skipping duplicate message: {}", metadata.message_id);
+                                continue;
+                            }
+
                             let subject = if metadata.subject.len() > 80 {
                                 format!("{}...", &metadata.subject[..77])
                             } else {
