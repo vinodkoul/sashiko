@@ -699,18 +699,51 @@ impl Database {
         part_index: u32,
         diff: &str,
     ) -> Result<i64> {
+        // Check if patch exists and get old patchset_id to fix counts if we steal it
+        let old_patchset_id: Option<i64> = {
+            let mut rows = self
+                .conn
+                .query(
+                    "SELECT patchset_id FROM patches WHERE message_id = ?",
+                    libsql::params![message_id],
+                )
+                .await?;
+            if let Ok(Some(row)) = rows.next().await {
+                Some(row.get(0)?)
+            } else {
+                None
+            }
+        };
+
+        // Insert or Update (Move patch to new patchset if duplicate)
         self.conn.execute(
-            "INSERT OR IGNORE INTO patches (patchset_id, message_id, part_index, diff) VALUES (?, ?, ?, ?)",
+            "INSERT INTO patches (patchset_id, message_id, part_index, diff) VALUES (?, ?, ?, ?)
+             ON CONFLICT(message_id) DO UPDATE SET
+                patchset_id=excluded.patchset_id,
+                part_index=excluded.part_index,
+                diff=excluded.diff",
             libsql::params![patchset_id, message_id, part_index, diff]
         ).await?;
 
-        // Update received_parts based on actual patch count to be idempotent
+        // Update received_parts for the NEW patchset
         self.conn
             .execute(
                 "UPDATE patchsets SET received_parts = (SELECT COUNT(*) FROM patches WHERE patchset_id = ?) WHERE id = ?",
                 libsql::params![patchset_id, patchset_id],
             )
             .await?;
+
+        // Update received_parts for the OLD patchset (if we moved it)
+        if let Some(old_id) = old_patchset_id {
+            if old_id != patchset_id {
+                self.conn
+                    .execute(
+                        "UPDATE patchsets SET received_parts = (SELECT COUNT(*) FROM patches WHERE patchset_id = ?) WHERE id = ?",
+                        libsql::params![old_id, old_id],
+                    )
+                    .await?;
+            }
+        }
 
         // Check if complete and update status
         // We only transition from 'Incomplete' to 'Pending' (ready for review)
