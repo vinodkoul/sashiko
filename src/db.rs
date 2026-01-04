@@ -766,7 +766,7 @@ impl Database {
             let mut messages = Vec::new();
             if let Some(tid) = thread_id {
                 let mut msg_rows = self.conn.query(
-                    "SELECT id, message_id, author, date, subject FROM messages WHERE thread_id = ? ORDER BY date ASC",
+                    "SELECT id, message_id, author, date, subject, in_reply_to FROM messages WHERE thread_id = ? ORDER BY date ASC",
                     libsql::params![tid]
                 ).await?;
                 while let Ok(Some(m)) = msg_rows.next().await {
@@ -776,6 +776,7 @@ impl Database {
                         "author": m.get::<Option<String>>(2).ok(),
                         "date": m.get::<Option<i64>>(3).ok(),
                         "subject": m.get::<Option<String>>(4).ok(),
+                        "in_reply_to": m.get::<Option<String>>(5).ok(),
                     }));
                 }
             }

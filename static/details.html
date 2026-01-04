@@ -110,6 +110,46 @@
 
             let threadHtml = '';
             if (data.thread && data.thread.length > 0) {
+                // Build Tree
+                const msgMap = new Map();
+                const childrenMap = new Map();
+                data.thread.forEach(m => {
+                    msgMap.set(m.message_id, m);
+                    childrenMap.set(m.message_id, []);
+                });
+
+                const roots = [];
+                data.thread.forEach(m => {
+                    const parentId = m.in_reply_to;
+                    if (parentId && msgMap.has(parentId)) {
+                        childrenMap.get(parentId).push(m);
+                    } else {
+                        roots.push(m);
+                    }
+                });
+
+                let rowsHtml = '';
+                function renderNode(m, depth) {
+                    const mDate = m.date ? new Date(m.date * 1000).toLocaleString() : '-';
+                    const indent = depth * 20;
+                    const marker = depth > 0 ? '↳ ' : '';
+                    
+                    rowsHtml += `
+                        <tr>
+                            <td>${mDate}</td>
+                            <td>${m.author || 'unknown'}</td>
+                            <td style="padding-left: ${indent + 8}px">
+                                ${marker}<a href="/static/message.html?id=${m.id}">${m.subject || '(no subject)'}</a>
+                            </td>
+                        </tr>
+                    `;
+
+                    const children = childrenMap.get(m.message_id) || [];
+                    children.forEach(c => renderNode(c, depth + 1));
+                }
+
+                roots.forEach(r => renderNode(r, 0));
+
                 threadHtml = `
                     <table class="reviews-table">
                          <thead>
@@ -120,16 +160,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            ${data.thread.map(m => {
-                                const mDate = m.date ? new Date(m.date * 1000).toLocaleString() : '-';
-                                return `
-                                    <tr>
-                                        <td>${mDate}</td>
-                                        <td>${m.author || 'unknown'}</td>
-                                        <td><a href="/static/message.html?id=${m.id}">${m.subject || '(no subject)'}</a></td>
-                                    </tr>
-                                `;
-                            }).join('')}
+                            ${rowsHtml}
                         </tbody>
                     </table>
                 `;
