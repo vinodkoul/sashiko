@@ -25,7 +25,7 @@
 
 ## Phase 2.5: Performance Optimization
 - [x] **Task**: Implement Transactional Batching (group DB writes to reduce I/O).
-- [ ] **Task**: Implement Decoupled Parallel Parsing (separate parsing from DB writes).
+- [x] **Task**: Implement Decoupled Parallel Parsing (separate parsing from DB writes).
 - [ ] **Task**: Implement Git-Backed Content Storage (store hashes, read from git, reduce DB size).
 
 ## Phase 3: AI Logic & Interaction Tracking (Deferred)
