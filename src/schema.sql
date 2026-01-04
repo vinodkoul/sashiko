@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS messages (
     subject TEXT,
     date INTEGER,
     body TEXT,
+    to_recipients TEXT,
+    cc_recipients TEXT,
     FOREIGN KEY(thread_id) REFERENCES threads(id)
 );
 

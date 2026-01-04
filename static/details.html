@@ -120,7 +120,7 @@
                                     <tr>
                                         <td>${mDate}</td>
                                         <td>${m.author || 'unknown'}</td>
-                                        <td>${m.subject || '(no subject)'}</td>
+                                        <td><a href="/static/message.html?id=${m.id}">${m.subject || '(no subject)'}</a></td>
                                     </tr>
                                 `;
                             }).join('')}

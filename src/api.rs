@@ -45,6 +45,7 @@ pub async fn run_server(
     let app = Router::new()
         .route("/api/patchsets", get(list_patchsets))
         .route("/api/patch", get(get_patchset))
+        .route("/api/message", get(get_message))
         .route("/api/stats", get(get_stats))
         .route("/", get_service(ServeFile::new("static/index.html")))
         .nest_service("/static", ServeDir::new("static"))
@@ -109,6 +110,31 @@ async fn get_patchset(
         }
     }
 }
+
+async fn get_message(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<PatchQuery>,
+) -> Result<Json<crate::db::MessageRow>, StatusCode> {
+    let id_val = query
+        .id
+        .parse::<i64>()
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    info!("Fetching details for message id: {}", id_val);
+
+    match state.db.get_message_details(id_val).await {
+        Ok(Some(details)) => Ok(Json(details)),
+        Ok(None) => {
+            info!("Message not found: {}", id_val);
+            Err(StatusCode::NOT_FOUND)
+        }
+        Err(e) => {
+            info!("Database error: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
 async fn get_stats() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "status": "ok",

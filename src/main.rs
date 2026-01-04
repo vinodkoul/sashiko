@@ -138,7 +138,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     &metadata.author,
                                     &metadata.subject,
                                     metadata.date,
-                                    "", // Body not stored yet in this call, usually separate or in patch
+                                    &metadata.body,
+                                    &metadata.to,
+                                    &metadata.cc,
                                 )
                                 .await
                             {

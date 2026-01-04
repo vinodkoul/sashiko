@@ -18,6 +18,7 @@ pub struct PatchsetMetadata {
     pub cc: String,
     pub is_patch_or_cover: bool,
     pub version: Option<u32>,
+    pub body: String,
 }
 
 #[derive(Debug)]
@@ -134,6 +135,7 @@ pub fn parse_email(raw_email: &[u8]) -> Result<(PatchsetMetadata, Option<Patch>)
         cc,
         is_patch_or_cover,
         version,
+        body: body.clone(),
     };
 
     let patch = if has_diff {

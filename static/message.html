@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sashiko - Message</title>
+    <style>
+        body { font-family: sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background: #f4f4f4; }
+        .container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { margin-top: 0; }
+        .meta { color: #666; font-size: 0.9em; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+        .meta div { margin-bottom: 4px; }
+        .label { font-weight: bold; width: 60px; display: inline-block; }
+        pre { background: #f8f8f8; padding: 15px; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word; }
+        .copy-btn { margin-left: 10px; cursor: pointer; padding: 2px 8px; background: #eee; border: 1px solid #ccc; border-radius: 4px; font-size: 0.8em; }
+        .copy-btn:hover { background: #ddd; }
+        .nav { margin-bottom: 20px; }
+        a { text-decoration: none; color: #007bff; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="nav">
+        <a href="/">← Back to List</a>
+    </div>
+
+    <div class="container" id="loading">Loading...</div>
+    <div class="container" id="content" style="display:none">
+        <h1 id="subject"></h1>
+        <div class="meta">
+            <div><span class="label">From:</span> <span id="author"></span></div>
+            <div><span class="label">To:</span> <span id="to"></span></div>
+            <div><span class="label">Cc:</span> <span id="cc"></span></div>
+            <div><span class="label">Date:</span> <span id="date"></span></div>
+            <div>
+                <span class="label">Msg-ID:</span> <span id="msgid"></span>
+                <button class="copy-btn" onclick="copyMsgId()">Copy ID</button>
+            </div>
+        </div>
+        <pre id="body"></pre>
+    </div>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const id = params.get('id');
+
+        async function copyMsgId() {
+            const msgId = document.getElementById('msgid').innerText;
+            try {
+                await navigator.clipboard.writeText(msgId);
+                const btn = document.querySelector('.copy-btn');
+                const origText = btn.innerText;
+                btn.innerText = 'Copied!';
+                setTimeout(() => btn.innerText = origText, 2000);
+            } catch (err) {
+                console.error('Failed to copy!', err);
+            }
+        }
+
+        async function fetchMessage() {
+            if (!id) {
+                document.getElementById('loading').innerText = 'No message ID provided';
+                return;
+            }
+
+            try {
+                const res = await fetch(`/api/message?id=${id}`);
+                if (!res.ok) throw new Error('Message not found');
+                const data = await res.json();
+
+                document.title = `Sashiko - ${data.subject}`;
+                document.getElementById('subject').innerText = data.subject || '(No Subject)';
+                document.getElementById('author').innerText = data.author || 'Unknown';
+                document.getElementById('to').innerText = data.to || '-';
+                document.getElementById('cc').innerText = data.cc || '-';
+                document.getElementById('date').innerText = new Date(data.date * 1000).toLocaleString();
+                document.getElementById('msgid').innerText = data.message_id;
+                document.getElementById('body').innerText = data.body || '(No body content)';
+
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+            } catch (e) {
+                document.getElementById('loading').innerText = 'Error loading message: ' + e.message;
+            }
+        }
+
+        fetchMessage();
+    </script>
+</body>
+</html>
