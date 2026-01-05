@@ -76,20 +76,8 @@ If the LLM generates a review, we can run a second "Critic" pass (cheaper model 
 
 ## 5. Linux Kernel Specific Tricks
 
-### A. `checkpatch.pl` Integration
-The agent should not manually lint code. It should invoke `checkpatch.pl` and interpret the output.
--   **Workflow**:
-    1.  Agent applies patch to worktree.
-    2.  Agent runs `scripts/checkpatch.pl`.
-    3.  Agent reads output.
-    4.  **Crucial**: Agent *filters* false positives (e.g., "line over 80 chars" is often ignored in modern kernel) based on `review-prompts/false-positive-guide.md`.
-
-### B. `get_maintainer.pl` Verification
--   Check if the `To/Cc` list in the patchset matches the output of `scripts/get_maintainer.pl`.
--   Flag if key maintainers are missing.
-
-### C. API Evolution Check
--   If the patch uses a deprecated API (e.g., `simple_strtol`), the agent should suggest the modern alternative (`kstrtol`) by referencing `checkpatch` or internal knowledge bases.
+### A. API Evolution Check
+If the patch uses a deprecated API (e.g., `simple_strtol`), the agent should suggest the modern alternative (`kstrtol`) by referencing internal knowledge bases or previously ingested examples.
 
 ## 6. Limitations & Mitigation
 
@@ -102,13 +90,12 @@ The agent should not manually lint code. It should invoke `checkpatch.pl` and in
 -   **Mitigation**: Strict "Evidence-Based" rule. "Quote the line of code from the context that supports your finding."
 
 ### C. Subjectivity
--   **Limitation**: arguing about style.
--   **Mitigation**: Defer to `checkpatch.pl` for style. Focus review on logic, concurrency, and security.
+-   **Limitation**: Arguing about style.
+-   **Mitigation**: Focus review on logic, concurrency, and security, avoiding subjective style debates unless they violate well-known kernel patterns.
 
 ## 7. Implementation Roadmap (Features)
 
 1.  **Phase 1**: Basic Review (Text output, diff-only context).
 2.  **Phase 2**: Tool-Assisted (Agent can `read_file`, `grep`).
 3.  **Phase 3**: Structured JSON Output & Database Integration.
-4.  **Phase 4**: `checkpatch.pl` & `get_maintainer.pl` integration.
-5.  **Phase 5**: Multi-turn "Critic" Loop.
+4.  **Phase 4**: Multi-turn "Critic" Loop.
