@@ -21,8 +21,14 @@
 <body>
     <h1>Sashiko Patch Tracker</h1>
     <div id="stats">Loading stats...</div>
+
+    <div style="margin-top: 15px; margin-bottom: 10px;">
+        <button id="btn-patchsets" onclick="setMode('patchsets')" disabled>Patchsets</button>
+        <button id="btn-messages" onclick="setMode('messages')">Messages</button>
+    </div>
+
     <table id="patchsets">
-        <thead>
+        <thead id="table-head">
             <tr>
                 <th>Subject</th>
                 <th>Author</th>
@@ -48,6 +54,7 @@
         let currentPage = 1;
         const perPage = 50;
         let totalPages = 1;
+        let currentMode = 'patchsets'; // 'patchsets' or 'messages'
 
         async function fetchStats() {
             const res = await fetch('/api/stats');
@@ -60,35 +67,71 @@
 
         function copyToClipboard(text) {
             navigator.clipboard.writeText(text).then(() => {
-                // Optional: show some feedback
                 console.log('Copied to clipboard:', text);
             });
+        }
+
+        function setMode(mode) {
+            if (currentMode === mode) return;
+            currentMode = mode;
+            currentPage = 1;
+            
+            document.getElementById('btn-patchsets').disabled = (mode === 'patchsets');
+            document.getElementById('btn-messages').disabled = (mode === 'messages');
+
+            updateTableHeader();
+            fetchData();
+        }
+
+        function updateTableHeader() {
+            const thead = document.getElementById('table-head');
+            if (currentMode === 'patchsets') {
+                thead.innerHTML = `
+                    <tr>
+                        <th>Subject</th>
+                        <th>Author</th>
+                        <th>Parts</th>
+                        <th>Date</th>
+                        <th>Status</th>
+                        <th></th>
+                    </tr>
+                `;
+            } else {
+                thead.innerHTML = `
+                    <tr>
+                        <th>Subject</th>
+                        <th>Author</th>
+                        <th>Date</th>
+                        <th></th>
+                    </tr>
+                `;
+            }
         }
 
         async function changePage(delta) {
             const newPage = currentPage + delta;
             if (newPage < 1 || newPage > totalPages) return;
             currentPage = newPage;
-            await fetchPatchsets();
+            await fetchData();
         }
 
         async function goToPage(page) {
             if (page < 1 || page > totalPages) return;
             currentPage = page;
-            await fetchPatchsets();
+            await fetchData();
         }
 
         async function goToLast() {
             currentPage = totalPages;
-            await fetchPatchsets();
+            await fetchData();
         }
 
-        async function fetchPatchsets() {
-            const res = await fetch(`/api/patchsets?page=${currentPage}&per_page=${perPage}`);
+        async function fetchData() {
+            const endpoint = currentMode === 'patchsets' ? '/api/patchsets' : '/api/messages';
+            const res = await fetch(`${endpoint}?page=${currentPage}&per_page=${perPage}`);
             const data = await res.json();
             
-            // Handle new response format { items, total, page, per_page }
-            const items = data.items || data; // Fallback if API hasn't updated yet (race condition)
+            const items = data.items || [];
             const total = data.total || 0;
             
             totalPages = Math.ceil(total / perPage);
@@ -106,32 +149,48 @@
             items.forEach(p => {
                 const row = document.createElement('tr');
                 const date = new Date(p.date * 1000).toISOString().split('T')[0];
-                const parts = (p.received_parts === p.total_parts && p.total_parts > 0)
-                    ? `${p.total_parts}`
-                    : `${p.received_parts || 0}/${p.total_parts || 0}`;
                 
-                // Click handler for row
-                row.onclick = (e) => {
-                    // Don't navigate if clicking the copy button
-                    if (e.target.closest('.copy-btn')) return;
-                    window.location.href = `/static/details.html?id=${encodeURIComponent(p.id)}`;
-                };
-                row.style.cursor = 'pointer';
+                if (currentMode === 'patchsets') {
+                    const parts = (p.received_parts === p.total_parts && p.total_parts > 0)
+                        ? `${p.total_parts}`
+                        : `${p.received_parts || 0}/${p.total_parts || 0}`;
+                    
+                    row.onclick = (e) => {
+                        if (e.target.closest('.copy-btn')) return;
+                        window.location.href = `/static/details.html?id=${encodeURIComponent(p.id)}`;
+                    };
+                    row.style.cursor = 'pointer';
 
-                row.innerHTML = `
-                    <td>${p.subject || '(no subject)'}</td>
-                    <td>${p.author || 'unknown'}</td>
-                    <td>${parts}</td>
-                    <td>${date}</td>
-                    <td class="status-${p.status}">${p.status || 'Pending'}</td>
-                    <td style="text-align: right;"><button class="copy-btn" onclick="copyToClipboard('${p.message_id || p.id}')">📋</button></td>
-                `;
+                    row.innerHTML = `
+                        <td>${p.subject || '(no subject)'}</td>
+                        <td>${p.author || 'unknown'}</td>
+                        <td>${parts}</td>
+                        <td>${date}</td>
+                        <td class="status-${p.status}">${p.status || 'Pending'}</td>
+                        <td style="text-align: right;"><button class="copy-btn" onclick="copyToClipboard('${p.message_id || p.id}')">📋</button></td>
+                    `;
+                } else {
+                    // Messages mode
+                    row.onclick = (e) => {
+                        if (e.target.closest('.copy-btn')) return;
+                        window.location.href = `/static/message.html?id=${p.id}`;
+                    };
+                    row.style.cursor = 'pointer';
+
+                    row.innerHTML = `
+                        <td>${p.subject || '(no subject)'}</td>
+                        <td>${p.author || 'unknown'}</td>
+                        <td>${date}</td>
+                        <td style="text-align: right;"><button class="copy-btn" onclick="copyToClipboard('${p.message_id}')">📋</button></td>
+                    `;
+                }
                 tbody.appendChild(row);
             });
         }
 
         fetchStats();
-        fetchPatchsets();
+        // Initial load
+        fetchData();
     </script>
 </body>
 </html>

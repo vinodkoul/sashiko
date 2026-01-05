@@ -791,6 +791,33 @@ impl Database {
         Ok(patchsets)
     }
 
+    pub async fn get_messages(&self, limit: usize, offset: usize) -> Result<Vec<MessageRow>> {
+        let mut rows = self.conn.query(
+            "SELECT id, message_id, thread_id, in_reply_to, author, subject, date, body, to_recipients, cc_recipients, git_blob_hash, mailing_list FROM messages ORDER BY date DESC LIMIT ? OFFSET ?",
+            libsql::params![limit as i64, offset as i64],
+        ).await?;
+
+        let mut messages = Vec::new();
+        while let Ok(Some(row)) = rows.next().await {
+            messages.push(MessageRow {
+                id: row.get(0)?,
+                message_id: row.get(1)?,
+                thread_id: row.get(2).ok(),
+                in_reply_to: row.get(3).ok(),
+                author: row.get(4).ok(),
+                subject: row.get(5).ok(),
+                date: row.get(6).ok(),
+                body: row.get(7).ok(), // Note: Full body might be heavy, but strictly following instruction to map to MessageRow
+                to: row.get(8).ok(),
+                cc: row.get(9).ok(),
+                git_blob_hash: row.get(10).ok(),
+                mailing_list: row.get(11).ok(),
+                thread: None, // List view doesn't need thread details
+            });
+        }
+        Ok(messages)
+    }
+
     pub async fn count_patchsets(&self) -> Result<usize> {
         let mut rows = self
             .conn

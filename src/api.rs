@@ -31,6 +31,14 @@ pub struct PatchsetsResponse {
     pub per_page: usize,
 }
 
+#[derive(Serialize)]
+pub struct MessagesResponse {
+    pub items: Vec<crate::db::MessageRow>,
+    pub total: usize,
+    pub page: usize,
+    pub per_page: usize,
+}
+
 #[derive(Deserialize)]
 pub struct PatchQuery {
     pub id: String,
@@ -44,6 +52,7 @@ pub async fn run_server(
 
     let app = Router::new()
         .route("/api/patchsets", get(list_patchsets))
+        .route("/api/messages", get(list_messages))
         .route("/api/patch", get(get_patchset))
         .route("/api/message", get(get_message))
         .route("/api/stats", get(get_stats))
@@ -80,6 +89,33 @@ async fn list_patchsets(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(PatchsetsResponse {
+        items,
+        total,
+        page,
+        per_page,
+    }))
+}
+
+async fn list_messages(
+    State(state): State<Arc<AppState>>,
+    Query(pagination): Query<Pagination>,
+) -> Result<Json<MessagesResponse>, StatusCode> {
+    let page = pagination.page.unwrap_or(1).max(1);
+    let per_page = pagination.per_page.unwrap_or(50).clamp(1, 100);
+    let offset = (page - 1) * per_page;
+
+    let items = state
+        .db
+        .get_messages(per_page, offset)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let total = state
+        .db
+        .count_messages()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(MessagesResponse {
         items,
         total,
         page,
