@@ -271,24 +271,32 @@ pub async fn ensure_remote(
         .ok()
         .and_then(|m| std::time::SystemTime::now().duration_since(m).ok());
 
+    // Check if HEAD exists
+    let head_ref = format!("refs/remotes/{}/HEAD", name);
+    let head_exists = Command::new("git")
+        .current_dir(repo_path)
+        .args(["show-ref", "--verify", "-q", &head_ref])
+        .status()
+        .await
+        .map(|s| s.success())
+        .unwrap_or(false);
+
     let should_fetch = if just_added {
         true
     } else {
         match age {
             Some(a) => {
                 if force_fetch {
-                    // If forced (retry after failure), only fetch if last fetch was > 1 hour ago
                     a > std::time::Duration::from_secs(3600)
                 } else {
-                    // Standard lazy fetch: 12 hours
                     a > std::time::Duration::from_secs(12 * 3600)
                 }
             }
-            None => true, // No timestamp file, fetch to be safe
+            None => true,
         }
     };
 
-    if !should_fetch {
+    if !should_fetch && head_exists {
         let reason = if force_fetch {
             "forced but recently fetched"
         } else {
@@ -299,38 +307,41 @@ pub async fn ensure_remote(
     }
 
     // 4. Fetch
-    info!("Fetching remote {}", name);
-    let fetch = Command::new("git")
-        .current_dir(repo_path)
-        .args(["fetch", name])
-        .output()
-        .await?;
+    if should_fetch {
+        info!("Fetching remote {}", name);
+        let fetch = Command::new("git")
+            .current_dir(repo_path)
+            .args(["fetch", name])
+            .output()
+            .await?;
 
-    if !fetch.status.success() {
-        return Err(anyhow!(
-            "Failed to fetch remote {}: {}",
-            name,
-            String::from_utf8_lossy(&fetch.stderr)
-        ));
+        if !fetch.status.success() {
+            return Err(anyhow!(
+                "Failed to fetch remote {}: {}",
+                name,
+                String::from_utf8_lossy(&fetch.stderr)
+            ));
+        }
+        // Update timestamp
+        let _ = std::fs::File::create(&timestamp_file); // Touch file
     }
 
-    // Ensure HEAD is set correctly
-    let set_head = Command::new("git")
-        .current_dir(repo_path)
-        .args(["remote", "set-head", name, "--auto"])
-        .output()
-        .await?;
+    // Ensure HEAD is set correctly (if we fetched OR if it was missing)
+    if should_fetch || !head_exists {
+        let set_head = Command::new("git")
+            .current_dir(repo_path)
+            .args(["remote", "set-head", name, "--auto"])
+            .output()
+            .await?;
 
-    if !set_head.status.success() {
-        warn!(
-            "Failed to set-head for remote {}: {}",
-            name,
-            String::from_utf8_lossy(&set_head.stderr)
-        );
+        if !set_head.status.success() {
+            warn!(
+                "Failed to set-head for remote {}: {}",
+                name,
+                String::from_utf8_lossy(&set_head.stderr)
+            );
+        }
     }
-
-    // Update timestamp
-    let _ = std::fs::File::create(&timestamp_file); // Touch file
 
     Ok(())
 }
