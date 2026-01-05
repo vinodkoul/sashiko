@@ -111,6 +111,17 @@ impl ToolBox {
         }
     }
 
+    fn truncate_output(&self, output: String) -> String {
+        const MAX_LEN: usize = 32 * 1024; // 32KB limit
+        if output.len() > MAX_LEN {
+            let mut truncated = output[..MAX_LEN].to_string();
+            truncated.push_str(&format!("\n... (truncated, total length: {} bytes)", output.len()));
+            truncated
+        } else {
+            output
+        }
+    }
+
     async fn read_file(&self, args: Value) -> Result<Value> {
         let path_str = args["path"]
             .as_str()
@@ -137,9 +148,10 @@ impl ToolBox {
 
         let slice = &lines[start..end];
         let result = slice.join("\n");
+        let truncated = self.truncate_output(result);
 
         Ok(json!({
-            "content": result,
+            "content": truncated,
             "lines_read": slice.len(),
             "total_lines": total_lines,
             "start_line": start + 1,
@@ -171,7 +183,8 @@ impl ToolBox {
             ));
         }
 
-        Ok(json!({ "content": String::from_utf8_lossy(&output.stdout) }))
+        let content = String::from_utf8_lossy(&output.stdout).to_string();
+        Ok(json!({ "content": self.truncate_output(content) }))
     }
 
     async fn git_diff(&self, args: Value) -> Result<Value> {
@@ -194,7 +207,8 @@ impl ToolBox {
             ));
         }
 
-        Ok(json!({ "content": String::from_utf8_lossy(&output.stdout) }))
+        let content = String::from_utf8_lossy(&output.stdout).to_string();
+        Ok(json!({ "content": self.truncate_output(content) }))
     }
 
     async fn git_show(&self, args: Value) -> Result<Value> {
@@ -216,7 +230,8 @@ impl ToolBox {
             ));
         }
 
-        Ok(json!({ "content": String::from_utf8_lossy(&output.stdout) }))
+        let content = String::from_utf8_lossy(&output.stdout).to_string();
+        Ok(json!({ "content": self.truncate_output(content) }))
     }
 
     async fn list_dir(&self, args: Value) -> Result<Value> {
@@ -235,6 +250,17 @@ impl ToolBox {
                 "file"
             };
             entries.push(json!({ "name": entry.file_name().to_string_lossy(), "type": ty }));
+        }
+
+        // List dir can also be huge if directory has many files, but usually JSON structure overhead is the issue.
+        // We probably don't need to truncate list_dir unless it's thousands of files.
+        // But for safety, let's limit the number of entries if needed, or just let it be.
+        // 32KB text limit for file content is reasonable.
+        // For list_dir, we can limit entries count.
+        if entries.len() > 1000 {
+            entries.truncate(1000);
+            // We can't easily signal truncation in JSON array without changing structure or adding a dummy entry.
+            // Let's leave list_dir as is for now, it's less likely to produce GBs than git show.
         }
 
         Ok(json!({ "entries": entries }))

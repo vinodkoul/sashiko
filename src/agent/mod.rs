@@ -2,6 +2,8 @@ pub mod prompts;
 pub mod tools;
 #[cfg(test)]
 mod tools_test;
+#[cfg(test)]
+mod integration_test;
 
 use crate::agent::prompts::PromptRegistry;
 use crate::agent::tools::ToolBox;
@@ -54,7 +56,15 @@ impl Agent {
             }],
         });
 
+        let mut turns = 0;
+        const MAX_TURNS: usize = 10;
+
         loop {
+            turns += 1;
+            if turns > MAX_TURNS {
+                return Err(anyhow!("Agent exceeded maximum turns ({})", MAX_TURNS));
+            }
+
             let req = GenerateContentRequest {
                 contents: self.history.clone(),
                 tools: Some(vec![self.tools.get_declarations()]),
