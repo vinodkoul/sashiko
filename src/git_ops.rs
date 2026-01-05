@@ -219,6 +219,13 @@ fn get_remote_lock(name: &str) -> Arc<AsyncMutex<()>> {
         .clone()
 }
 
+fn get_global_config_lock() -> Arc<AsyncMutex<()>> {
+    static GLOBAL_LOCK: OnceLock<Arc<AsyncMutex<()>>> = OnceLock::new();
+    GLOBAL_LOCK
+        .get_or_init(|| Arc::new(AsyncMutex::new(())))
+        .clone()
+}
+
 pub async fn ensure_remote(
     repo_path: &Path,
     name: &str,
@@ -226,34 +233,39 @@ pub async fn ensure_remote(
     force_fetch: bool,
 ) -> Result<()> {
     // 1. Security Check (Skipped - trusting MAINTAINERS)
-    // acquire lock
+    // acquire remote-specific lock
     let lock = get_remote_lock(name);
     let _guard = lock.lock().await;
 
     let mut just_added = false;
 
-    // 2. Check if exists
-    let check = Command::new("git")
-        .current_dir(repo_path)
-        .args(["remote", "get-url", name])
-        .output()
-        .await?;
+    // 2. Check if exists (requires global config lock)
+    {
+        let global_lock = get_global_config_lock();
+        let _global_guard = global_lock.lock().await;
 
-    if !check.status.success() {
-        info!("Adding remote {} ({})", name, url);
-        let add = Command::new("git")
+        let check = Command::new("git")
             .current_dir(repo_path)
-            .args(["remote", "add", name, url])
+            .args(["remote", "get-url", name])
             .output()
             .await?;
-        if !add.status.success() {
-            let stderr = String::from_utf8_lossy(&add.stderr);
-            if !stderr.contains("already exists") {
-                return Err(anyhow!("Failed to add remote: {}", stderr));
+
+        if !check.status.success() {
+            info!("Adding remote {} ({})", name, url);
+            let add = Command::new("git")
+                .current_dir(repo_path)
+                .args(["remote", "add", name, url])
+                .output()
+                .await?;
+            if !add.status.success() {
+                let stderr = String::from_utf8_lossy(&add.stderr);
+                if !stderr.contains("already exists") {
+                    return Err(anyhow!("Failed to add remote: {}", stderr));
+                }
             }
+            just_added = true;
         }
-        just_added = true;
-    }
+    } // Release global lock
 
     // 3. Lazy Fetch Check
     let timestamp_dir = repo_path.join(".sashiko/fetch_timestamps");
@@ -322,6 +334,10 @@ pub async fn ensure_remote(
 
     // Ensure HEAD is set correctly (if we fetched OR if it was missing)
     if should_fetch || !head_exists {
+        // Requires global config lock
+        let global_lock = get_global_config_lock();
+        let _global_guard = global_lock.lock().await;
+
         let set_head = Command::new("git")
             .current_dir(repo_path)
             .args(["remote", "set-head", name, "--auto"])
