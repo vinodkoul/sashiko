@@ -28,7 +28,7 @@
 - [x] **Task**: Implement Decoupled Parallel Parsing (separate parsing from DB writes).
 - [x] **Task**: Implement Git-Backed Content Storage (store hashes, read from git, reduce DB size).
 
-## Phase 3: AI Logic & Interaction Tracking (Deferred)
+## Phase 3: AI Logic & Interaction Tracking (In Progress)
 - [ ] Implement model-agnostic AI provider abstraction.
 - [ ] Set up `ai_interactions` table and workflow engine for chain restoration.
 - [ ] Integrate with `review-prompts` repository logic.
