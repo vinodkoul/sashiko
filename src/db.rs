@@ -178,7 +178,19 @@ impl Database {
         if let Ok(Some(row)) = rows.next().await {
             Ok(row.get(0)?)
         } else {
-            Err(anyhow::anyhow!("Failed to ensure subsystem"))
+            // Fallback: Get ID by name (Collision on name with different address)
+            let mut rows = self
+                .conn
+                .query(
+                    "SELECT id FROM subsystems WHERE name = ?",
+                    libsql::params![name],
+                )
+                .await?;
+            if let Ok(Some(row)) = rows.next().await {
+                Ok(row.get(0)?)
+            } else {
+                Err(anyhow::anyhow!("Failed to ensure subsystem"))
+            }
         }
     }
 

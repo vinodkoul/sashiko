@@ -454,7 +454,7 @@ fn identify_subsystems(to: &str, cc: &str) -> Vec<(String, String)> {
         {
             // Fallback: derive name from email user part
             if let Some(name) = lower_email.split('@').next() {
-                subsystems.push((name.to_string(), email.to_string()));
+                subsystems.push((name.to_string(), lower_email));
             }
         }
     }
