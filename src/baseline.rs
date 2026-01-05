@@ -311,9 +311,10 @@ impl BaselineRegistry {
 
     fn resolve_url(&self, url: &str, branch: Option<String>) -> BaselineResolution {
         if let Some(remote_name) = self.remote_map.get(url) {
-            match branch {
-                Some(b) => BaselineResolution::LocalRef(format!("{}/{}", remote_name, b)),
-                None => BaselineResolution::LocalRef(format!("{}/HEAD", remote_name)),
+            BaselineResolution::RemoteTarget {
+                url: url.to_string(),
+                name: remote_name.clone(),
+                branch,
             }
         } else {
             let name = self.suggest_remote_name(url);
@@ -368,7 +369,7 @@ mod tests {
         let mut entries = Vec::new();
         entries.push(MaintainersEntry {
             subsystem: "NETWORKING".to_string(),
-            trees: vec!["git://net-next.git".to_string()],
+            trees: vec![("git://net-next.git".to_string(), None)],
             patterns: vec!["net/".to_string()],
         });
         let mut remote_map = HashMap::new();
@@ -387,22 +388,16 @@ mod tests {
 
         let candidates = registry.resolve_candidates(&files, "Subject", Some(body));
 
-        assert_eq!(candidates.len(), 4); // Base, Subsystem, Next, Head -> Next is RemoteTarget(linux-next), Subsystem is Local(net-next).
-        // Wait, Next is hardcoded URL.
-        // 1. Commit(123...)
-        // 2. LocalRef(net-next/master)
-        // 3. RemoteTarget(linux-next)
-        // 4. LocalRef(HEAD)
+        assert_eq!(candidates.len(), 4); // Base, Subsystem, Next, Head
 
-        // Actually 4.
         assert_eq!(
             candidates[0],
             BaselineResolution::Commit("1234567890123456789012345678901234567890".to_string())
         );
 
         match &candidates[1] {
-            BaselineResolution::LocalRef(r) => assert_eq!(r, "net-next/master"),
-            _ => panic!("Expected LocalRef net-next"),
+            BaselineResolution::RemoteTarget { name, .. } => assert_eq!(name, "net-next"),
+            _ => panic!("Expected RemoteTarget net-next"),
         }
     }
 }
