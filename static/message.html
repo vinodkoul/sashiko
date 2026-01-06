@@ -113,7 +113,7 @@
                 let className = 'diff-line';
                 if (line.startsWith('+') && !line.startsWith('+++')) {
                     className += ' diff-added';
-                } else if (line.startsWith('-') && !line.startsWith('---')) {
+                } else if (line.startsWith('-') && !line.startsWith('--')) {
                     className += ' diff-removed';
                 } else if (line.startsWith('@@') || line.startsWith('diff --git') || line.startsWith('--- ') || line.startsWith('+++ ')) {
                     className += ' diff-header';
