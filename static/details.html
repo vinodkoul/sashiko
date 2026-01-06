@@ -58,6 +58,10 @@
         .diff-removed { background-color: #ffebe9; color: #24292f; }
         .diff-header { color: #005cc5; font-weight: bold; }
         .token-stats { font-size: 0.85em; color: #777; margin-top: 5px; }
+        
+        .trace-entry { margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+        .trace-role { font-weight: bold; color: #444; margin-bottom: 2px; }
+        .trace-content { white-space: pre-wrap; font-family: inherit; }
     </style>
 </head>
 <body>
@@ -139,6 +143,65 @@
                     const rDate = r.created_at ? new Date(r.created_at * 1000).toLocaleString() : '-';
                     const providerModel = `${r.provider || '?'}/${r.model || '?'}`;
                     const prompts = r.prompts_hash ? r.prompts_hash.substring(0, 8) : '-';
+                    
+                    let regressionCount = 0;
+                    let hasRegressions = false;
+                    let statusText = r.result || 'Finished';
+                    let traceHtml = '';
+
+                    // Parse output for regressions and trace
+                    try {
+                        if (r.output) {
+                            const outputJson = JSON.parse(r.output);
+                            
+                            // 1. Regressions
+                            if (outputJson.regressions && Array.isArray(outputJson.regressions)) {
+                                regressionCount = outputJson.regressions.length;
+                                hasRegressions = regressionCount > 0;
+                            }
+
+                            // 2. Analysis Trace
+                            if (outputJson.analysis_trace && Array.isArray(outputJson.analysis_trace)) {
+                                 const entries = outputJson.analysis_trace.map(t => {
+                                     // Handle string or object entries
+                                     let content = '';
+                                     if (typeof t === 'string') {
+                                         content = t;
+                                     } else if (t.step && t.thought) {
+                                         // Common chain-of-thought structure
+                                         content = `Step ${t.step}: ${t.thought}`;
+                                     } else {
+                                         content = JSON.stringify(t, null, 2);
+                                     }
+                                     return `<div class="trace-entry"><div class="trace-content">${escapeHtml(content)}</div></div>`;
+                                 }).join('');
+                                 
+                                 traceHtml = `
+                                    <div style="margin-top:15px;">
+                                        <div style="margin-bottom:5px; font-weight:600; color:#555;">Trace Analysis</div>
+                                        <div class="log-block" style="max-height: 300px;">${entries}</div>
+                                    </div>
+                                `;
+                            }
+                        }
+                    } catch (e) {
+                        console.warn("Failed to parse review output", e);
+                    }
+
+                    if (statusText === "Review completed successfully.") {
+                         statusText = hasRegressions ? `${regressionCount} regressions found` : 'No regressions found';
+                    } else if (hasRegressions) {
+                         // append info if text is different
+                         statusText += ` (${regressionCount} regressions found)`;
+                    }
+
+                    let resultStyle = '';
+                    if (hasRegressions) {
+                        resultStyle = 'color: #d32f2f; font-weight: bold;';
+                    } else if (statusText.includes('No regressions found')) {
+                        resultStyle = 'color: #2e7d32; font-weight: bold;';
+                    }
+
                     const status = r.status || 'Finished';
                     const statusClass = `status-${status.split(' ')[0]}`;
                     
@@ -151,26 +214,16 @@
                         baselineStr = parts.join(' / ');
                     }
 
-                    const tokensIn = r.tokens_in || 0;
-                    const tokensOut = r.tokens_out || 0;
-                    const totalTokens = tokensIn + tokensOut;
-
                     const uniqueId = Math.random().toString(36).substr(2, 9);
                     const detailsId = `review-details-${uniqueId}`;
-                    
-                    let logLink = '';
-                    if (r.id) {
-                        logLink = `<div style="margin-top: 10px;">
-                            <a href="/static/log.html?id=${r.id}" class="toggle-btn">View Full Interaction Log</a>
-                        </div>`;
-                    }
 
                     let inlineSection = '';
                     if (r.inline_review) {
+                        const isOpen = hasRegressions ? 'open' : '';
                         inlineSection = `
-                            <div style="margin-top: 10px;">
-                                <button class="toggle-btn" onclick="toggleDetails('inline-${uniqueId}')">Show Inline Review</button>
-                                <div id="inline-${uniqueId}" class="review-details open">
+                            <div style="margin-top: 15px;">
+                                <button class="toggle-btn" onclick="toggleDetails('inline-${uniqueId}')">Toggle Inline Review</button>
+                                <div id="inline-${uniqueId}" class="review-details ${isOpen}">
                                     <div class="log-block" style="background:#f8f9fa; color:#333; border: 1px solid #ddd;">${escapeHtml(r.inline_review, true)}</div>
                                 </div>
                             </div>
@@ -188,12 +241,15 @@
                                 <div class="review-meta-label">Date:</div><div>${rDate}</div>
                                 <div class="review-meta-label">Model:</div><div>${providerModel}</div>
                                 <div class="review-meta-label">Baseline:</div><div>${baselineStr}</div>
-                                <div class="review-meta-label">Result:</div><div>${r.result || '-'}</div>
+                                <div class="review-meta-label">Result:</div><div style="${resultStyle}">${escapeHtml(statusText)}</div>
                             </div>
 
-                            ${r.summary ? `<div class="review-summary">${escapeHtml(r.summary)}</div>` : ''}
+                            ${traceHtml}
                             ${inlineSection}
-                            ${logLink}
+                            
+                             <div style="margin-top: 10px; font-size: 0.85em; text-align: right;">
+                                <a href="/static/log.html?id=${r.id}" target="_blank">View Raw Log</a>
+                            </div>
                         </div>
                     `;
                 }).join('');
