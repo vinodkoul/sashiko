@@ -2,7 +2,6 @@ use anyhow::Result;
 use clap::Parser;
 use sashiko::{
     agent::{Agent, prompts::PromptRegistry, tools::ToolBox},
-    ai::gemini::GeminiClient,
     db::Database,
     git_ops::GitWorktree,
     settings::Settings,
@@ -36,9 +35,6 @@ struct Args {
 
     #[arg(long, default_value = "review-prompts")]
     prompts: PathBuf,
-
-    #[arg(long)]
-    model: Option<String>,
 
     /// If set, only review the patch with this index (1-based usually).
     /// Previous patches (with lower index) will be applied but not reviewed.
@@ -206,13 +202,8 @@ async fn main() -> Result<()> {
                 "Patches applied. Starting AI review for {} patches...",
                 patches_to_review.len()
             );
-            let model_name = args.model.unwrap_or_else(|| settings.ai.model.clone());
-
-            let client: Box<dyn sashiko::ai::gemini::GenAiClient> = if args.json {
-                Box::new(sashiko::ai::gemini::StdioGeminiClient)
-            } else {
-                Box::new(GeminiClient::new(model_name))
-            };
+            
+            let client = Box::new(sashiko::ai::gemini::StdioGeminiClient);
 
             let tools = ToolBox::new(worktree.path.clone(), args.prompts.clone());
             let prompts = PromptRegistry::new(args.prompts.clone());
