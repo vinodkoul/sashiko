@@ -189,11 +189,10 @@ impl Database {
 
         if let Ok(Some(row)) = rows.next().await {
             let body: Option<String> = row.get(0).ok();
-            if let Some(b) = body {
-                if !b.is_empty() {
+            if let Some(b) = body
+                && !b.is_empty() {
                     return Ok(Some(b));
                 }
-            }
             // Try git blob
             let hash: Option<String> = row.get(1).ok();
             let group: Option<String> = row.get(2).ok();
@@ -467,14 +466,13 @@ impl Database {
                     libsql::params![review_id],
                 )
                 .await;
-            if let Ok(mut c_rows) = count_rows {
-                if let Ok(Some(c_row)) = c_rows.next().await {
+            if let Ok(mut c_rows) = count_rows
+                && let Ok(Some(c_row)) = c_rows.next().await {
                     let count: i64 = c_row.get(0)?;
                     if count > 0 {
                         continue;
                     }
                 }
-            }
 
             // Parse logs (simple JSON array parsing)
             if let Ok(history) = serde_json::from_str::<Vec<serde_json::Value>>(&logs) {
@@ -972,8 +970,8 @@ impl Database {
         mailing_list: Option<&str>,
     ) -> Result<()> {
         // Check for thread merge (Thread split resolution)
-        if let Ok(Some(old_thread_id)) = self.get_thread_id_for_message(message_id).await {
-            if old_thread_id != thread_id {
+        if let Ok(Some(old_thread_id)) = self.get_thread_id_for_message(message_id).await
+            && old_thread_id != thread_id {
                 info!("Merging thread {} into {}", old_thread_id, thread_id);
                 // 1. Move messages
                 self.conn
@@ -1029,7 +1027,6 @@ impl Database {
                     )
                     .await?;
             }
-        }
 
         // Use INSERT OR REPLACE to handle updating placeholders
         // But we want to preserve thread_id if it was set by placeholder (which is correct).
@@ -1336,8 +1333,8 @@ impl Database {
             .await?;
 
         // Update received_parts for the OLD patchset (if we moved it)
-        if let Some(old_id) = old_patchset_id {
-            if old_id != patchset_id {
+        if let Some(old_id) = old_patchset_id
+            && old_id != patchset_id {
                 self.conn
                     .execute(
                         "UPDATE patchsets SET received_parts = (SELECT COUNT(*) FROM patches WHERE patchset_id = ?) WHERE id = ?",
@@ -1345,7 +1342,6 @@ impl Database {
                     )
                     .await?;
             }
-        }
 
         // Check if complete and update status
         // We only transition from 'Incomplete' to 'Pending' (ready for review)

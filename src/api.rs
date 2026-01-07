@@ -194,8 +194,8 @@ async fn get_message(
 
     match result {
         Ok(Some(mut details)) => {
-            if details.body.is_none() || details.body.as_deref() == Some("") {
-                if let (Some(hash), Some(group)) = (&details.git_blob_hash, &details.mailing_list) {
+            if (details.body.is_none() || details.body.as_deref() == Some(""))
+                && let (Some(hash), Some(group)) = (&details.git_blob_hash, &details.mailing_list) {
                     let repo_root = std::path::PathBuf::from("archives").join(group);
 
                     // 1. Find all potential repo paths (root + epochs)
@@ -205,15 +205,12 @@ async fn get_message(
                     if let Ok(mut entries) = tokio::fs::read_dir(&repo_root).await {
                         let mut epochs = Vec::new();
                         while let Ok(Some(entry)) = entries.next_entry().await {
-                            if let Ok(ft) = entry.file_type().await {
-                                if ft.is_dir() {
-                                    if let Ok(name) = entry.file_name().into_string() {
-                                        if let Ok(num) = name.parse::<i32>() {
+                            if let Ok(ft) = entry.file_type().await
+                                && ft.is_dir()
+                                    && let Ok(name) = entry.file_name().into_string()
+                                        && let Ok(num) = name.parse::<i32>() {
                                             epochs.push(num);
                                         }
-                                    }
-                                }
-                            }
                         }
                         epochs.sort_by(|a, b| b.cmp(a)); // Descending
 
@@ -227,15 +224,13 @@ async fn get_message(
 
                     // 2. Search for blob
                     for path in candidate_paths {
-                        if let Ok(raw) = crate::git_ops::read_blob(&path, hash).await {
-                            if let Ok((metadata, _)) = crate::patch::parse_email(&raw) {
+                        if let Ok(raw) = crate::git_ops::read_blob(&path, hash).await
+                            && let Ok((metadata, _)) = crate::patch::parse_email(&raw) {
                                 details.body = Some(metadata.body);
                                 break;
                             }
-                        }
                     }
                 }
-            }
             Ok(Json(details))
         }
         Ok(None) => {

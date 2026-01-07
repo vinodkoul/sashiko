@@ -402,8 +402,8 @@ impl GenAiClient for GeminiClient {
             match self.generate_content_single(&request).await {
                 Ok(resp) => return Ok(resp),
                 Err(e) => {
-                    if let Some(gemini_err) = e.downcast_ref::<GeminiError>() {
-                        if let GeminiError::QuotaExceeded(sleep_duration) = gemini_err {
+                    if let Some(gemini_err) = e.downcast_ref::<GeminiError>()
+                        && let GeminiError::QuotaExceeded(sleep_duration) = gemini_err {
                             tracing::warn!(
                                 "Gemini API quota exceeded. Retrying in {:.2}s...",
                                 sleep_duration.as_secs_f64()
@@ -411,7 +411,6 @@ impl GenAiClient for GeminiClient {
                             sleep(*sleep_duration).await;
                             continue;
                         }
-                    }
                     return Err(e);
                 }
             }
@@ -470,8 +469,8 @@ impl GenAiClient for GeminiClient {
             match self.generate_content_with_cache_single(&request).await {
                 Ok(resp) => return Ok(resp),
                 Err(e) => {
-                    if let Some(gemini_err) = e.downcast_ref::<GeminiError>() {
-                        if let GeminiError::QuotaExceeded(sleep_duration) = gemini_err {
+                    if let Some(gemini_err) = e.downcast_ref::<GeminiError>()
+                        && let GeminiError::QuotaExceeded(sleep_duration) = gemini_err {
                             tracing::warn!(
                                 "Gemini API quota exceeded (cache). Retrying in {:.2}s...",
                                 sleep_duration.as_secs_f64()
@@ -479,7 +478,6 @@ impl GenAiClient for GeminiClient {
                             sleep(*sleep_duration).await;
                             continue;
                         }
-                    }
                     return Err(e);
                 }
             }

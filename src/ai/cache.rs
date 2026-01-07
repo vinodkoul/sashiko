@@ -99,11 +99,10 @@ impl CacheManager {
         let mut hasher = Sha256::new();
         hasher.update(content);
         // Also hash tools signature if present, so we rotate cache if tools change
-        if let Some(tools) = &self.tools {
-            if let Ok(json) = serde_json::to_string(tools) {
+        if let Some(tools) = &self.tools
+            && let Ok(json) = serde_json::to_string(tools) {
                 hasher.update(json);
             }
-        }
         format!("{:x}", hasher.finalize())
     }
 
@@ -122,9 +121,9 @@ impl CacheManager {
         let existing = self.client.list_cached_contents().await?;
 
         for cache in existing {
-            if let Some(dn) = &cache.display_name {
-                if dn == &expected_display_name && cache.model == model_name {
-                    if let Some(name) = cache.name {
+            if let Some(dn) = &cache.display_name
+                && dn == &expected_display_name && cache.model == model_name
+                    && let Some(name) = cache.name {
                         tracing::info!(
                             "Found existing cache: {} ({} for {})",
                             name,
@@ -133,8 +132,6 @@ impl CacheManager {
                         );
                         return Ok(name);
                     }
-                }
-            }
         }
 
         tracing::info!("Creating new cache: {}", expected_display_name);

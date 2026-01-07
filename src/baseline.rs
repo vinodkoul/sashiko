@@ -138,8 +138,8 @@ impl BaselineRegistry {
                 let val = value.trim();
                 match tag {
                     "T" => {
-                        if val.starts_with("git ") {
-                            if let Some(rest) = val.strip_prefix("git ") {
+                        if val.starts_with("git ")
+                            && let Some(rest) = val.strip_prefix("git ") {
                                 let parts: Vec<&str> = rest.split_whitespace().collect();
                                 if !parts.is_empty() {
                                     let url = parts[0].to_string();
@@ -151,7 +151,6 @@ impl BaselineRegistry {
                                     current_trees.push((url, branch));
                                 }
                             }
-                        }
                     }
                     "F" => {
                         current_patterns.push(val.to_string());
@@ -210,11 +209,10 @@ impl BaselineRegistry {
         let mut candidates = Vec::new();
 
         // 1. Explicit Base Commit
-        if let Some(body_text) = body {
-            if let Some(commit) = extract_base_commit(body_text) {
+        if let Some(body_text) = body
+            && let Some(commit) = extract_base_commit(body_text) {
                 candidates.push(BaselineResolution::Commit(commit));
             }
-        }
 
         // 2. Subsystem Heuristic
         if let Some(subsystem) = self.resolve_subsystem_heuristic(files, subject) {
@@ -344,11 +342,10 @@ impl BaselineRegistry {
 pub fn extract_files_from_diff(diff: &str) -> Vec<String> {
     let mut files = Vec::new();
     for line in diff.lines() {
-        if let Some(path) = line.strip_prefix("diff --git a/") {
-            if let Some((a, _)) = path.split_once(' ') {
+        if let Some(path) = line.strip_prefix("diff --git a/")
+            && let Some((a, _)) = path.split_once(' ') {
                 files.push(a.to_string());
             }
-        }
     }
     files
 }
