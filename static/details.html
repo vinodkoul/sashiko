@@ -74,12 +74,14 @@
             navigator.clipboard.writeText(text);
         }
 
-        function toggleDetails(id) {
+        function toggleDetails(id, btn) {
             const el = document.getElementById(id);
             if (el.classList.contains('open')) {
                 el.classList.remove('open');
+                if (btn) btn.innerText = btn.innerText.replace('▼', '▶');
             } else {
                 el.classList.add('open');
+                if (btn) btn.innerText = btn.innerText.replace('▶', '▼');
             }
         }
 
@@ -182,7 +184,7 @@
                                  
                                  traceHtml = `
                                     <div style="margin-top:15px;">
-                                        <button class="toggle-btn" onclick="toggleDetails('${traceId}')">Reasoning chain</button>
+                                        <button class="toggle-btn" onclick="toggleDetails('${traceId}', this)">▶ Reasoning chain</button>
                                         <div id="${traceId}" class="review-details">
                                             <div class="log-block" style="max-height: 300px;">${entries}</div>
                                         </div>
@@ -226,15 +228,22 @@
                     let inlineSection = '';
                     if (r.inline_review) {
                         const isOpen = hasRegressions ? 'open' : '';
+                        const icon = hasRegressions ? '▼' : '▶';
                         inlineSection = `
                             <div style="margin-top: 15px;">
-                                <button class="toggle-btn" onclick="toggleDetails('inline-${uniqueId}')">Inline review</button>
+                                <button class="toggle-btn" onclick="toggleDetails('inline-${uniqueId}', this)">${icon} Inline review</button>
                                 <div id="inline-${uniqueId}" class="review-details ${isOpen}">
                                     <div class="log-block" style="background:#f8f9fa; color:#333; border: 1px solid #ddd;">${escapeHtml(r.inline_review, true)}</div>
                                 </div>
                             </div>
                         `;
                     }
+                    
+                    const rawLogHtml = `
+                        <div style="margin-top: 15px;">
+                             <a href="/static/log.html?id=${r.id}" class="toggle-btn" style="text-decoration:none;">View Raw Log</a>
+                        </div>
+                    `;
 
                     return `
                         <div class="review-card">
@@ -242,18 +251,17 @@
                                 <div class="review-meta-label">Date:</div>
                                 <div style="display:flex; justify-content:space-between; align-items:center;">
                                     <span>${rDate}</span>
-                                    <span>
-                                        <span class="status-badge ${statusClass}">${status}</span>
-                                        <a href="/static/log.html?id=${r.id}" style="margin-left: 8px; font-size: 0.9em;">View Raw Log</a>
-                                    </span>
+                                    <span class="status-badge ${statusClass}">${status}</span>
                                 </div>
                                 <div class="review-meta-label">Baseline:</div><div>${baselineStr}</div>
                                 <div class="review-meta-label">Model:</div><div>${providerModel}</div>
+                                <div style="grid-column: 1 / -1; border-top: 1px solid #eee; margin: 4px 0;"></div>
                                 <div class="review-meta-label">Result:</div><div style="${resultStyle}">${escapeHtml(statusText)}</div>
                             </div>
 
                             ${inlineSection}
                             ${traceHtml}
+                            ${rawLogHtml}
                         </div>
                     `;
                 }).join('');
