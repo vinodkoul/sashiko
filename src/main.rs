@@ -20,6 +20,10 @@ struct Cli {
     #[arg(long)]
     no_nntp: bool,
 
+    /// Disable AI interactions (ingestion only)
+    #[arg(long)]
+    no_ai: bool,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -44,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting Sashiko...");
 
     // Load settings
-    let settings = match Settings::new() {
+    let mut settings = match Settings::new() {
         Ok(s) => {
             info!("Settings loaded successfully");
             s
@@ -54,6 +58,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err(e.into());
         }
     };
+
+    if cli.no_ai {
+        settings.ai.no_ai = true;
+        info!("AI interactions disabled via --no-ai flag");
+    }
 
     // Initialize Database
     let db = Arc::new(Database::new(&settings.database).await?);
@@ -460,6 +469,17 @@ mod tests {
         let cli = Cli::parse_from(args);
         assert_eq!(cli.download, None);
         assert!(!cli.no_nntp);
+    }
+
+    #[test]
+    fn test_cli_no_ai() {
+        let args = vec!["sashiko", "--no-ai"];
+        let cli = Cli::parse_from(args);
+        assert!(cli.no_ai);
+
+        let args = vec!["sashiko"];
+        let cli = Cli::parse_from(args);
+        assert!(!cli.no_ai);
     }
 
     #[test]

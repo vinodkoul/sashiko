@@ -95,6 +95,13 @@ impl Reviewer {
             self.settings.review.concurrency
         );
 
+        if self.settings.ai.no_ai {
+            info!(
+                "AI interactions disabled via settings. Reviewer service will not process patchsets."
+            );
+            return;
+        }
+
         // Ensure Gemini Cache
         match self.cache_manager.ensure_cache().await {
             Ok(name) => {

@@ -29,6 +29,8 @@ pub struct AiSettings {
     pub max_input_words: usize,
     #[serde(default = "default_rate_limit_tokens_per_minute")]
     pub rate_limit_tokens_per_minute: usize,
+    #[serde(skip, default)]
+    pub no_ai: bool,
 }
 
 fn default_rate_limit_tokens_per_minute() -> usize {
