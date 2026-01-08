@@ -613,9 +613,9 @@
             if (patchMatch) {
                 return { view: 'patchset', id: decodeURIComponent(patchMatch[1]) };
             }
-            const msgMatch = hash.match(/^#\/message\/(\d+)$/);
+            const msgMatch = hash.match(/^#\/message\/(.+)$/);
             if (msgMatch) {
-                return { view: 'message', id: msgMatch[1] };
+                return { view: 'message', id: decodeURIComponent(msgMatch[1]) };
             }
             const logMatch = hash.match(/^#\/log\/(\d+)$/);
             if (logMatch) {
@@ -851,7 +851,7 @@
                 } else {
                     row.onclick = (e) => {
                         if (e.target.closest('.copy-btn')) return;
-                        navigate(`#/message/${p.id}`);
+                        navigate(`#/message/${encodeURIComponent(p.message_id)}`);
                     };
 
                     row.innerHTML = `
@@ -981,7 +981,7 @@
                 const patch = patchMap.get(pid);
                 const reviews = reviewsByPatch.get(pid);
                 let header = patch
-                    ? `Patch ${patch.part_index}: <a href="#/message/${patch.msg_db_id}">${escapeHtml(patch.subject || '(no subject)')}</a>`
+                    ? `Patch ${patch.part_index}: <a href="#/message/${encodeURIComponent(patch.message_id)}">${escapeHtml(patch.subject || '(no subject)')}</a>`
                     : `Patch ID ${pid}`;
 
                 let totalTokens = 0;
@@ -1139,7 +1139,7 @@
             function renderNode(m, depth) {
                 const mDate = m.date ? formatDate(m.date) : '-';
                 const arrow = depth > 0 ? '↳ ' : '';
-                html += `<li>${arrow}<span class="date">[${mDate}]</span> ${escapeHtml((m.author || 'unknown').trim())}: <a href="#/message/${m.id}">${escapeHtml(m.subject || '(no subject)')}</a>`;
+                html += `<li>${arrow}<span class="date">[${mDate}]</span> ${escapeHtml((m.author || 'unknown').trim())}: <a href="#/message/${encodeURIComponent(m.message_id)}">${escapeHtml(m.subject || '(no subject)')}</a>`;
                 const children = childrenMap.get(m.message_id) || [];
                 if (children.length > 0) {
                     html += '<ul>';
@@ -1163,7 +1163,7 @@
 
             document.title = `Sashiko - ${data.subject}`;
             const date = formatDate(data.date, true);
-            const threadHtml = data.thread?.length > 0 ? renderThreadTreeWithCurrent(data.thread, data.id) : '';
+            const threadHtml = data.thread?.length > 0 ? renderThreadTreeWithCurrent(data.thread, data.message_id) : '';
 
             document.getElementById('app').innerHTML = `
                 <div class="nav"><a href="#/" onclick="event.preventDefault(); goBack();">← Back</a></div>
@@ -1183,7 +1183,7 @@
             `;
         }
 
-        function renderThreadTreeWithCurrent(thread, currentId) {
+        function renderThreadTreeWithCurrent(thread, currentMsgId) {
             if (!thread || thread.length === 0) return '';
 
             const msgMap = new Map();
@@ -1207,9 +1207,9 @@
             function renderNode(m, depth) {
                 const mDate = m.date ? formatDate(m.date) : '-';
                 const arrow = depth > 0 ? '↳ ' : '';
-                const isCurrent = m.id === currentId;
+                const isCurrent = m.message_id === currentMsgId;
                 const style = isCurrent ? 'class="current"' : '';
-                html += `<li>${arrow}<span class="date">[${mDate}]</span> ${escapeHtml((m.author || 'unknown').trim())}: <a href="#/message/${m.id}" ${style}>${escapeHtml(m.subject || '(no subject)')}</a>`;
+                html += `<li>${arrow}<span class="date">[${mDate}]</span> ${escapeHtml((m.author || 'unknown').trim())}: <a href="#/message/${encodeURIComponent(m.message_id)}" ${style}>${escapeHtml(m.subject || '(no subject)')}</a>`;
                 const children = childrenMap.get(m.message_id) || [];
                 if (children.length > 0) {
                     html += '<ul>';
