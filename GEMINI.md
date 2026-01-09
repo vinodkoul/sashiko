@@ -52,3 +52,35 @@ You're an expert Software Engineer with deep knowledge of Rust, Distributed Syst
 ## 6. Asynchronous Code
 
 - **Async/Await:** Use idiomatic `async`/`await` patterns. Be mindful of blocking operations in async contexts; use `tokio::task::spawn_blocking` if necessary.
+
+# Project Map
+
+## Core Application (`src/`)
+- `main.rs`: Application entry point.
+- `lib.rs`: Shared library code.
+- `worker/`: Background worker implementations (Review, Security, AI).
+- `ai/`: Artificial Intelligence integration logic.
+- `ingestor.rs`: Ingests patches/emails (likely from NNTP).
+- `reviewer.rs`: Logic for reviewing patches.
+- `inspector.rs`: Code inspection logic.
+- `git_ops.rs`: Git operations wrapper.
+- `nntp.rs`: NNTP protocol handling.
+- `patch.rs`: Patch parsing and manipulation.
+- `db.rs`: Database interactions.
+- `api.rs`: API endpoints.
+- `settings.rs`: Application settings management.
+- `events.rs`: Event handling system.
+- `baseline.rs`: Baseline detection logic.
+
+## Configuration & Assets
+- `Settings.toml`: Main application configuration.
+- `review-prompts/`: Markdown templates/prompts for AI reviews, categorized by Linux subsystem.
+- `static/`: Web assets (HTML, images).
+
+## Data & External
+- `linux/`: Linux kernel source tree (reference/analysis).
+- `archives/`: Storage for mailing list archives.
+- `review_trees/`: Git worktrees used during the review process.
+
+## Documentation
+- `designs/`: Architecture and design documents.
