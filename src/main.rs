@@ -547,6 +547,19 @@ mod tests {
     }
 
     #[test]
+    fn test_cli_message_patchset() {
+        let args = vec!["sashiko", "--message", "123", "--patchset", "456"];
+        let cli = Cli::parse_from(args);
+        assert_eq!(cli.message, Some("123".to_string()));
+        assert_eq!(cli.patchset, Some("456".to_string()));
+
+        let args = vec!["sashiko"];
+        let cli = Cli::parse_from(args);
+        assert_eq!(cli.message, None);
+        assert_eq!(cli.patchset, None);
+    }
+
+    #[test]
     fn test_identify_subsystems() {
         // Test known subsystem
         let to = "linux-kernel@vger.kernel.org";
