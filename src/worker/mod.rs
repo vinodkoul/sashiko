@@ -103,11 +103,6 @@ impl Worker {
             return;
         }
 
-        info!(
-            "Context size ({} tokens) exceeds limit ({}). Pruning history...",
-            current_tokens, limit
-        );
-
         // Keep index 0 (Task Prompt). Prune from index 1.
         // We also want to avoid pruning the very last message if possible, but budget is strict.
         // Prune oldest messages first (after index 0).
@@ -116,10 +111,6 @@ impl Worker {
             let removed = self.history.remove(1);
             let removed_tokens = self.estimate_content_tokens(&removed);
             current_tokens = current_tokens.saturating_sub(removed_tokens);
-            info!(
-                "Pruned message with {} tokens. Remaining: {}",
-                removed_tokens, current_tokens
-            );
         }
     }
 
@@ -221,7 +212,6 @@ impl Worker {
                     tools: None, // Tools are baked into the cache
                     generation_config,
                 };
-                info!("Sending request to Gemini (cached: {})...", cache_name);
                 let resp = self.client.generate_content_with_cache(req).await?;
 
                 // Check for cache update from parent
@@ -229,10 +219,6 @@ impl Worker {
                     if let Some(extra) = &usage.extra {
                         if let Some(new_name) = extra.get("new_cache_name").and_then(|v| v.as_str())
                         {
-                            info!(
-                                "Updating cache name from response: {} -> {}",
-                                cache_name, new_name
-                            );
                             self.cache_name = Some(new_name.to_string());
                         }
                     }
@@ -246,11 +232,6 @@ impl Worker {
                     generation_config,
                 };
 
-                let token_count = self.estimate_history_tokens(&req.system_instruction);
-                info!(
-                    "Sending request to Gemini ({} estimated tokens)...",
-                    token_count
-                );
                 self.client.generate_content(req).await?
             };
 
