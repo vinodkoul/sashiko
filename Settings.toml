@@ -13,10 +13,10 @@ groups = ["org.kernel.vger.linux-kernel"]
 provider = "gemini"
 model = "gemini-3-flash-preview"
 max_input_words = 150000
-rate_limit_tokens_per_minute = 900000
+rate_limit_tokens_per_minute = 1900000
 max_interactions = 50
 temperature = 1.0
-explicit_prompts_caching = false
+explicit_prompts_caching = true
 
 [server]
 host = "127.0.0.1"
