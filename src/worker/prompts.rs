@@ -6,9 +6,6 @@ use tokio::fs;
 /// System identity prompt - used across all AI interactions
 pub const SYSTEM_IDENTITY: &str = "You're an expert Linux kernel developer and upstream maintainer with deep knowledge of Linux kernel, Operating Systems, CPU architectures, modern hardware and Linux kernel community standards and processes.";
 
-/// Brief system instruction for cached content
-pub const CACHE_SYSTEM_INSTRUCTION: &str = "You are an expert Linux kernel reviewer.";
-
 /// Files to exclude from context building
 const EXCLUDED_FILES: &[&str] = &[
     "review-core.md",
@@ -37,11 +34,6 @@ impl PromptRegistry {
         SYSTEM_IDENTITY
     }
 
-    /// Returns the cache system instruction
-    pub fn get_cache_system_instruction() -> &'static str {
-        CACHE_SYSTEM_INSTRUCTION
-    }
-
     /// Reads the review-core.md protocol file
     pub async fn get_review_core(&self) -> Result<String> {
         let core_path = self.base_dir.join("review-core.md");
@@ -60,7 +52,7 @@ impl PromptRegistry {
         if use_cache {
             Ok(format!(
                 "{}\nRun a deep dive regression analysis of the top commit in the Linux source tree.\n\n\
-                 Follow the 'Review Protocol' and all Technical patterns and Subsystem Guidelines available in your context.\n\
+                 Follow the Review Protocol and all Technical patterns and Subsystem Guidelines available in your context.\n\
                  IMPORTANT: Don't try to load additional prompts using tools, even if guided otherwise, they all are preloaded in your context.\n\
                  IMPORTANT: If you find regressions, you MUST use the `write_file` tool to create `review-inline.txt` as specified in the protocol.",
                 SYSTEM_IDENTITY
@@ -192,12 +184,6 @@ mod tests {
         let identity = PromptRegistry::get_system_identity();
         assert!(identity.starts_with("You're an expert Linux kernel developer"));
         assert!(identity.contains("maintainer"));
-    }
-
-    #[test]
-    fn test_cache_system_instruction_constant() {
-        let instruction = PromptRegistry::get_cache_system_instruction();
-        assert!(instruction.contains("Linux kernel reviewer"));
     }
 
     #[test]

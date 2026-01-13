@@ -3044,7 +3044,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_ai_interaction_with_cached_tokens() {
         let db = setup_db().await;
-        
+
         // Create interaction
         let params = AiInteractionParams {
             id: "test_id",
@@ -3058,16 +3058,23 @@ mod tests {
             tokens_out: 50,
             tokens_cached: 25,
         };
-        
+
         db.create_ai_interaction(params).await.unwrap();
-        
-        // Verify via raw query since there is no direct get_ai_interaction method exposed 
+
+        // Verify via raw query since there is no direct get_ai_interaction method exposed
         // (get_review_details joins it, but requires a review)
-        
-        let mut rows = db.conn.query("SELECT tokens_cached FROM ai_interactions WHERE id = 'test_id'", ()).await.unwrap();
+
+        let mut rows = db
+            .conn
+            .query(
+                "SELECT tokens_cached FROM ai_interactions WHERE id = 'test_id'",
+                (),
+            )
+            .await
+            .unwrap();
         let row = rows.next().await.unwrap().unwrap();
         let cached: u32 = row.get(0).unwrap();
-        
+
         assert_eq!(cached, 25);
     }
 }

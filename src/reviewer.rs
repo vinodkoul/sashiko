@@ -540,7 +540,9 @@ impl Reviewer {
                                             as u32,
                                         tokens_out: json_output["tokens_out"].as_u64().unwrap_or(0)
                                             as u32,
-                                        tokens_cached: json_output["tokens_cached"].as_u64().unwrap_or(0)
+                                        tokens_cached: json_output["tokens_cached"]
+                                            .as_u64()
+                                            .unwrap_or(0)
                                             as u32,
                                     })
                                     .await;

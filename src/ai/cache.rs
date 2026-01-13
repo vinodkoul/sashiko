@@ -115,7 +115,7 @@ impl CacheManager {
             system_instruction: Some(Content {
                 role: "system".to_string(),
                 parts: vec![Part::Text {
-                    text: PromptRegistry::get_cache_system_instruction().to_string(),
+                    text: PromptRegistry::get_system_identity().to_string(),
                     thought_signature: None,
                 }],
             }),
