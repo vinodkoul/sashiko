@@ -496,7 +496,7 @@ pub async fn get_range_base(repo_path: &Path, rev_range: &str) -> Result<String>
         if !parts[0].is_empty() {
             parts[0].to_string()
         } else {
-             "HEAD".to_string()
+            "HEAD".to_string()
         }
     } else {
         // Single commit: treated as <since>..HEAD by format-patch, so base is the commit itself

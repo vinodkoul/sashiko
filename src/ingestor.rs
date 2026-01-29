@@ -267,17 +267,17 @@ impl Ingestor {
             count += 1;
         }
 
-        info!("Successfully ingested {} messages from {}", count, source_desc);
+        info!(
+            "Successfully ingested {} messages from {}",
+            count, source_desc
+        );
         Ok(count)
     }
 
     async fn run_git_ingestion(&self, range: &str) -> Result<()> {
         let repo_path = std::path::PathBuf::from(&self.settings.git.repository_path);
         if !repo_path.exists() {
-            return Err(anyhow!(
-                "Git repository not found at {:?}",
-                repo_path
-            ));
+            return Err(anyhow!("Git repository not found at {:?}", repo_path));
         }
 
         // Determine baseline
