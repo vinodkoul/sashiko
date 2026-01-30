@@ -456,7 +456,8 @@ async fn process_parsed_article(worker_db: &Database, article: ParsedArticle) ->
         };
 
     let is_git_hash = article_id.len() == 40 && article_id.chars().all(|c| c.is_ascii_hexdigit());
-    let (body_to_store, git_hash_opt) = if is_git_hash {
+    // Only optimize storage (skip body) if it's a bulk git import where we have the archives
+    let (body_to_store, git_hash_opt) = if is_git_hash && group.starts_with("git-import") {
         ("", Some(article_id.as_str()))
     } else {
         (metadata.body.as_str(), None)

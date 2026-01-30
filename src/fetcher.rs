@@ -219,7 +219,7 @@ impl FetchAgent {
             ));
         }
 
-        let raw = String::from_utf8(output.stdout)?;
+        let raw = String::from_utf8_lossy(&output.stdout).to_string();
         let parts: Vec<&str> = raw.split("---SASHIKO-END-HEADER---\n").collect();
 
         if parts.len() < 2 {
