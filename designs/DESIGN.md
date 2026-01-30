@@ -11,20 +11,28 @@ Sashiko follows a modular, single-node architecture designed for high concurrenc
 1.  **Ingestor**:
     *   **Live Mode**: Continuously polls `nntp.lore.kernel.org` via NNTP.
     *   **Offline/Test Mode**: Reads from a local `git` clone of `lore.kernel.org` archives (bulk import).
-2.  **Internal Task Queue**: Uses `tokio::sync::mpsc` channels to pass metadata to workers.
-3.  **Patch Worker**:
+2.  **Fetch Agent**:
+    *   Handles manual submission of remote git commits (via SHA1).
+    *   Throttles fetching operations to avoid overwhelming remote servers.
+3.  **Internal Task Queue**: Uses `tokio::sync::mpsc` channels to pass metadata to workers.
+4.  **Patch Worker**:
     *   Parses emails into `Patch` and `Patchset` structures.
     *   Assembles multi-part patchsets.
     *   Detects the target git baseline.
     *   Applies patches in a sandboxed Git worktree.
-4.  **AI Review Worker**: Sends applied patches to LLMs and processes feedback.
-5.  **Database (Turso/libSQL)**: Stores all metadata, patches, and review results.
-6.  **Web API (Axum)**: Serves data to the frontend.
-7.  **Web Frontend**: Minimalistic, raw HTML and JavaScript interface served via Nginx.
-8.  **Email Gateway**: Handles outbound reviews and inbound replies.
+5.  **AI Review Worker**: Sends applied patches to LLMs and processes feedback.
+6.  **Database (Turso/libSQL)**: Stores all metadata, patches, and review results.
+7.  **Web API (Axum)**: Serves data to the frontend and accepts manual patch submissions.
+8.  **Web Frontend**: Minimalistic, raw HTML and JavaScript interface served via Nginx.
+9.  **Email Gateway**: Handles outbound reviews and inbound replies.
 
 ## 2. Component Details
 ...
+### 2.6. Fetch Agent
+*   **Purpose**: Asynchronously fetches commits from remote git repositories when users submit patches via SHA1.
+*   **Logic**: Maintains a throttled queue to process requests sequentially or in small batches.
+*   **Integration**: Emits `PatchSubmitted` events to the parsing pipeline on success, or `IngestionFailed` events on error.
+
 ### 2.5. Web Frontend
 *   **Design Philosophy**: Simple and minimalistic, adhering to the "kernel.org vibes" (fast, text-heavy, no-nonsense).
 *   **Technology Stack**: Standard HTML5, CSS, and Vanilla JavaScript. Served as static files by **Nginx**, which also acts as a reverse proxy for the Rust backend.
@@ -128,6 +136,7 @@ For a detailed breakdown of the prompting strategy, context management, and stab
 *   `POST /api/reviews/:id/re-run`: Trigger a manual re-review.
 *   `POST /api/patchsets/:id/baseline`: Manually update the git baseline for a patchset.
 *   `GET /api/stats`: System-wide statistics (patches processed, AI costs, etc.).
+*   `POST /api/submit`: Submit a patch manually (local diff or remote commit SHA).
 
 ## 6. Security
 
