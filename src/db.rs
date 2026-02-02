@@ -1440,12 +1440,16 @@ impl Database {
             }
         }
 
-        // 2. Normal matching logic: Find candidate patchsets in this thread
+        // 2. Normal matching logic: Find candidate patchsets in this thread OR matching author/time
+        // We expand the search window to finding ANY patchset by this author in the last 24h
+        let window_start = date - 86400;
+        let window_end = date + 86400;
         let mut rows = self
             .conn
             .query(
-                "SELECT id, date, author, subject, subject_index, total_parts FROM patchsets WHERE thread_id = ?",
-                libsql::params![thread_id],
+                "SELECT id, date, author, subject, subject_index, total_parts FROM patchsets 
+                 WHERE thread_id = ? OR (author = ? AND date BETWEEN ? AND ?)",
+                libsql::params![thread_id, author, window_start, window_end],
             )
             .await?;
 
@@ -3606,5 +3610,105 @@ mod tests {
         .unwrap();
 
         assert!(!db.has_failed_review(ps_id, patch_id, None).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_cross_thread_merge() {
+        let db = setup_db().await;
+
+        // 1. Create Thread A and Patchset A (1/2)
+        let t1 = db
+            .create_thread("root1", "Subject 1/2", 1000)
+            .await
+            .unwrap();
+        db.create_message(
+            "msg1",
+            t1,
+            None,
+            "Author",
+            "[PATCH 1/2] Series",
+            1000,
+            "",
+            "",
+            "",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let ps1 = db
+            .create_patchset(
+                t1,
+                None,
+                "[PATCH 1/2] Series",
+                "Author",
+                1000,
+                2,
+                0,
+                "",
+                "",
+                None,
+                1,
+                None,
+                true,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        // 2. Create Thread B and Patchset B (2/2) - Same Author, Close Time, Different Thread
+        let t2 = db
+            .create_thread("root2", "Subject 2/2", 1005)
+            .await
+            .unwrap(); // 5 seconds later
+        db.create_message(
+            "msg2",
+            t2,
+            None,
+            "Author",
+            "[PATCH 2/2] Series",
+            1005,
+            "",
+            "",
+            "",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let ps2 = db
+            .create_patchset(
+                t2,
+                None,
+                "[PATCH 2/2] Series",
+                "Author",
+                1005,
+                2,
+                0,
+                "",
+                "",
+                None,
+                2,
+                None,
+                true,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        // 3. Assert they merged (ps2 should equal ps1)
+        assert_eq!(
+            ps1, ps2,
+            "Patchsets from different threads should merge if author/time match"
+        );
+
+        // 4. Verify total patches count or received parts
+        // create_patch calls update_received_parts
+        db.create_patch(ps1, "msg1", 1, "").await.unwrap();
+        db.create_patch(ps2, "msg2", 2, "").await.unwrap();
+
+        let details = db.get_patchset_details(ps1).await.unwrap().unwrap();
+        assert_eq!(details["received_parts"], 2);
     }
 }
