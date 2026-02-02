@@ -935,7 +935,12 @@
 
                     row.onclick = (e) => {
                         if (e.target.closest('.copy-btn')) return;
-                        navigate(`#/patchset/${encodeURIComponent(p.message_id || p.id)}`);
+                        const target = `#/patchset/${encodeURIComponent(p.message_id || p.id)}`;
+                        if (e.ctrlKey || e.metaKey) {
+                            window.open(target, '_blank');
+                        } else {
+                            navigate(target);
+                        }
                     };
 
                     let tagsHtml = '';
@@ -965,7 +970,12 @@
                 } else {
                     row.onclick = (e) => {
                         if (e.target.closest('.copy-btn')) return;
-                        navigate(`#/message/${encodeURIComponent(p.message_id)}`);
+                        const target = `#/message/${encodeURIComponent(p.message_id)}`;
+                        if (e.ctrlKey || e.metaKey) {
+                            window.open(target, '_blank');
+                        } else {
+                            navigate(target);
+                        }
                     };
 
                     row.innerHTML = `
