@@ -1678,7 +1678,7 @@ ${escapeHtml(data.body || '(no body)', true, false)}</pre>
                 <h1>
                     <span>Interaction Log</span>
                     <span style="font-size:0.7em; font-weight:normal; color:#888;">
-                        ${data.model || '?'} · ${totalTokens} tokens · ${data.prompts_hash ? 'Prompts: ' + data.prompts_hash.substring(0, 8) + ' · ' : ''}
+                        ${data.model || '?'} · ${data.prompts_hash ? 'Prompts: ' + data.prompts_hash.substring(0, 8) + ' · ' : ''}
                         <span class="status-badge status-${data.status}">${data.status}</span>
                     </span>
                 </h1>
