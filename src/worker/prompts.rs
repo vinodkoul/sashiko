@@ -9,11 +9,12 @@ pub const SYSTEM_IDENTITY: &str = "You're an expert Linux kernel developer and u
 /// Files to exclude from context building
 const EXCLUDED_FILES: &[&str] = &[
     "review-core.md",
+    "technical-patterns.md",
     "README.md",
     "review-one.md",
     "review-stat.md",
-    "technical-patterns.md",
-    "severity.md",
+    "debugging.md",
+    "lore-thread.md",
 ];
 
 pub struct PromptRegistry {
@@ -71,11 +72,13 @@ impl PromptRegistry {
 
     /// Builds full context string from prompts directory for caching
     ///
-    /// Includes:
-    /// 1. System identity
-    /// 2. review-core.md protocol
-    /// 3. Subsystem guidelines (*.md files in root)
-    /// 4. Technical patterns (*.md files in patterns/ subdirectory)
+    /// Follows specific inclusion order:
+    /// 1. System Identity
+    /// 2. review-core.md
+    /// 3. technical-patterns.md
+    /// 4. All *.md in base_dir (excluding specific files)
+    /// 5. All *.md in patterns/
+    /// 6. All *.md in nfsd/
     pub async fn build_context(&self) -> Result<String> {
         let mut context = String::new();
 
@@ -91,7 +94,7 @@ impl PromptRegistry {
             context.push_str("\n\n");
         }
 
-        // Technical patterns
+        // 3. Technical patterns (technical-patterns.md)
         let tech_path = self.base_dir.join("technical-patterns.md");
         if tech_path.exists() {
             context.push_str("## technical-patterns.md\n");
@@ -99,15 +102,7 @@ impl PromptRegistry {
             context.push_str("\n\n");
         }
 
-        // Severity guidelines
-        let sev_path = self.base_dir.join("severity.md");
-        if sev_path.exists() {
-            context.push_str("## severity.md\n");
-            context.push_str(&fs::read_to_string(&sev_path).await?);
-            context.push_str("\n\n");
-        }
-
-        // 3. Subsystem guidelines (root md files and subdirectories)
+        // 4. Subsystem guidelines (root md files)
         context.push_str("# Subsystem Guidelines\n\n");
 
         let mut entries = fs::read_dir(&self.base_dir).await?;
@@ -116,18 +111,6 @@ impl PromptRegistry {
             paths.push(entry.path());
         }
         paths.sort(); // Deterministic order
-
-        // Directories to exclude from subsystem scan (patterns is handled separately)
-        const EXCLUDED_DIRS: &[&str] = &[
-            "scripts",
-            "docs",
-            "examples",
-            "skills",
-            "slash-commands",
-            "agent",
-            "patterns",
-            ".git",
-        ];
 
         for path in paths {
             if path.is_file() && path.extension().is_some_and(|ext| ext == "md") {
@@ -138,32 +121,10 @@ impl PromptRegistry {
                 context.push_str(&format!("## {}\n", fname));
                 context.push_str(&fs::read_to_string(&path).await?);
                 context.push_str("\n\n");
-            } else if path.is_dir() {
-                let dir_name = path.file_name().unwrap().to_string_lossy();
-                if EXCLUDED_DIRS.contains(&dir_name.as_ref()) {
-                    continue;
-                }
-
-                // Recursively read .md files in this directory
-                let mut sub_entries = fs::read_dir(&path).await?;
-                let mut sub_paths = Vec::new();
-                while let Some(entry) = sub_entries.next_entry().await? {
-                    sub_paths.push(entry.path());
-                }
-                sub_paths.sort();
-
-                for sub_path in sub_paths {
-                    if sub_path.extension().is_some_and(|ext| ext == "md") {
-                        let fname = sub_path.file_name().unwrap().to_string_lossy();
-                        context.push_str(&format!("## {}/{}\n", dir_name, fname));
-                        context.push_str(&fs::read_to_string(&sub_path).await?);
-                        context.push_str("\n\n");
-                    }
-                }
             }
         }
 
-        // 4. Technical patterns (patterns/ subdirectory)
+        // 5. Technical patterns (patterns/ subdirectory)
         let patterns_dir = self.base_dir.join("patterns");
         if patterns_dir.exists() {
             context.push_str("# Technical Patterns\n\n");
@@ -177,7 +138,30 @@ impl PromptRegistry {
             for path in p_paths {
                 if path.extension().is_some_and(|ext| ext == "md") {
                     context.push_str(&format!(
-                        "## {}\n",
+                        "## patterns/{}\n",
+                        path.file_name().unwrap().to_string_lossy()
+                    ));
+                    context.push_str(&fs::read_to_string(&path).await?);
+                    context.push_str("\n\n");
+                }
+            }
+        }
+
+        // 6. NFSD guidelines (nfsd/ subdirectory)
+        let nfsd_dir = self.base_dir.join("nfsd");
+        if nfsd_dir.exists() {
+            context.push_str("# NFSD Guidelines\n\n");
+            let mut n_entries = fs::read_dir(&nfsd_dir).await?;
+            let mut n_paths = Vec::new();
+            while let Some(entry) = n_entries.next_entry().await? {
+                n_paths.push(entry.path());
+            }
+            n_paths.sort();
+
+            for path in n_paths {
+                if path.extension().is_some_and(|ext| ext == "md") {
+                    context.push_str(&format!(
+                        "## nfsd/{}\n",
                         path.file_name().unwrap().to_string_lossy()
                     ));
                     context.push_str(&fs::read_to_string(&path).await?);
@@ -270,11 +254,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_build_context_excludes_readme() {
+    async fn test_build_context_excludes_readme_and_others() {
         let temp_dir = tempfile::tempdir().unwrap();
         std::fs::write(
             temp_dir.path().join("README.md"),
             "# README\nDo not include",
+        )
+        .unwrap();
+        std::fs::write(
+            temp_dir.path().join("debugging.md"),
+            "# Debugging\nDo not include",
         )
         .unwrap();
         std::fs::write(
@@ -316,29 +305,41 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_build_context_recursive_subsystems() {
+    async fn test_build_context_structure() {
         let temp_dir = tempfile::tempdir().unwrap();
         let root = temp_dir.path();
 
-        // Create a root-level subsystem file
+        // 1. Root files (excluding ignored)
         std::fs::write(root.join("root_sub.md"), "Root Content").unwrap();
+        std::fs::write(root.join("debugging.md"), "Ignored Debugging").unwrap();
 
-        // Create a valid nested subsystem
-        let sub_dir = root.join("valid_sub");
-        std::fs::create_dir(&sub_dir).unwrap();
-        std::fs::write(sub_dir.join("rule1.md"), "Rule 1 Content").unwrap();
+        // 2. Patterns directory
+        let patterns_dir = root.join("patterns");
+        std::fs::create_dir(&patterns_dir).unwrap();
+        std::fs::write(patterns_dir.join("pat1.md"), "Pattern Content").unwrap();
 
-        // Create an excluded directory
-        let script_dir = root.join("scripts");
-        std::fs::create_dir(&script_dir).unwrap();
-        std::fs::write(script_dir.join("ignore_me.md"), "Ignored Content").unwrap();
+        // 3. NFSD directory
+        let nfsd_dir = root.join("nfsd");
+        std::fs::create_dir(&nfsd_dir).unwrap();
+        std::fs::write(nfsd_dir.join("nfsd1.md"), "NFSD Content").unwrap();
+
+        // 4. Random subdirectory (should be ignored)
+        let other_dir = root.join("other_sub");
+        std::fs::create_dir(&other_dir).unwrap();
+        std::fs::write(other_dir.join("other.md"), "Ignored Subdir Content").unwrap();
 
         let registry = PromptRegistry::new(root.to_path_buf());
         let context = registry.build_context().await.unwrap();
 
+        // Verify inclusions
         assert!(context.contains("Root Content"));
-        assert!(context.contains("## valid_sub/rule1.md"));
-        assert!(context.contains("Rule 1 Content"));
-        assert!(!context.contains("Ignored Content"));
+        assert!(context.contains("## patterns/pat1.md"));
+        assert!(context.contains("Pattern Content"));
+        assert!(context.contains("## nfsd/nfsd1.md"));
+        assert!(context.contains("NFSD Content"));
+
+        // Verify exclusions
+        assert!(!context.contains("Ignored Debugging"));
+        assert!(!context.contains("Ignored Subdir Content"));
     }
 }
