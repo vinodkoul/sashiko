@@ -1373,7 +1373,8 @@
                 inlineHtml = `
                     <div style="margin-top:8px;">
                         <button class="toggle-btn" onclick="toggleCollapsible('inline-${uniqueId}', this)">${icon} Inline Review</button>
-                        <div id="inline-${uniqueId}" class="collapsible ${isOpen}">
+                        <div id="inline-${uniqueId}" class="collapsible ${isOpen}" style="position: relative;">
+                            <button class="copy-btn" style="position: absolute; top: 5px; right: 5px; z-index: 10;" onclick="copyToClipboard(this.nextElementSibling.innerText)">Copy</button>
                             <div class="log-inline-block">${escapeHtml(r.inline_review, true)}</div>
                         </div>
                     </div>
