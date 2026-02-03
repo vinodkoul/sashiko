@@ -1950,10 +1950,8 @@
                 
                 html += '<h3>Review Outcomes</h3><div class="chart-section"><div id="chart-review-outcomes" style="width:100%; height:300px;"></div></div>';
 
-                html += '<h3>Reviews Breakdown</h3><div class="chart-section"><div id="chart-reviews" style="width:100%; height:400px;"></div></div>';
+                html += '<h3>Findings Severity</h3><div class="chart-section"><div id="chart-findings" style="width:100%; height:300px;"></div></div>';
 
-                html += '<h2>Tool Usage</h2><div class="chart-section"><div id="chart-tools" style="width:100%; height:500px;"></div></div>';
-                
                 // Calculate total tokens
                 const totalTokensIn = reviews.reduce((acc, r) => acc + (r.tokens_in || 0), 0);
                 const totalTokensOut = reviews.reduce((acc, r) => acc + (r.tokens_out || 0), 0);
@@ -1969,8 +1967,8 @@
                 html += renderStatCard('Cached tokens/patch', avgTokensCached);
                 html += renderStatCard('Out tokens/patch', avgTokensOut);
                 html += '</div>';
-
-                html += '<h2>Findings Severity</h2><div class="chart-section"><div id="chart-findings" style="width:100%; height:300px;"></div></div>';
+                
+                html += '<h2>Tool Usage</h2><div class="chart-section"><div id="chart-tools" style="width:100%; height:500px;"></div></div>';
 
                 const container = document.getElementById('stats-content');
                 container.innerHTML = html;
@@ -2051,49 +2049,6 @@
                     window.addEventListener('resize', () => chart.resize());
                 } else {
                      document.getElementById('chart-review-outcomes').innerHTML = '<p class="loading">No review history available.</p>';
-                }
-
-                // --- 2. Reviews Chart ---
-                if (reviews && reviews.length) {
-                    const chart = echarts.init(document.getElementById('chart-reviews'));
-                    // Group by model
-                    const models = [...new Set(reviews.map(r => `${r.provider}/${r.model}`))];
-                    const statuses = [...new Set(reviews.map(r => r.status))];
-
-                    // Custom color mapping
-                    const getColor = (s) => {
-                        if (s === 'Reviewed') return colors.secondary;
-                        if (s.toLowerCase().includes('failed')) return colors.failure;
-                        return colors.primary;
-                    };
-
-                    // Stacked bar
-                    const series = statuses.map(s => {
-                        return {
-                            name: s,
-                            type: 'bar',
-                            stack: 'total',
-                            itemStyle: { color: getColor(s) },
-                            data: models.map(m => {
-                                const [prov, mod] = m.split('/');
-                                const entry = reviews.find(r => r.provider === prov && r.model === mod && r.status === s);
-                                return entry ? entry.count : 0;
-                            })
-                        };
-                    });
-
-                    const option = {
-                        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-                        legend: { data: statuses, bottom: 0 },
-                        grid: { left: '3%', right: '4%', bottom: '15%', top: '5%', containLabel: true },
-                        xAxis: { type: 'category', data: models, axisLabel: { rotate: 25, interval: 0, color: colors.text } },
-                        yAxis: { type: 'value', splitLine: { lineStyle: { type: 'dashed' } } },
-                        series: series
-                    };
-                    chart.setOption(option);
-                    window.addEventListener('resize', () => chart.resize());
-                } else {
-                    document.getElementById('chart-reviews').innerHTML = '<p class="loading">No review data available.</p>';
                 }
 
                 // --- 3. Tool Usage Chart ---
