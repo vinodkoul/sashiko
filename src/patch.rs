@@ -197,6 +197,43 @@ pub fn parse_subject_version(subject: &str) -> Option<u32> {
     None
 }
 
+pub fn get_subject_prefixes(subject: &str) -> Vec<String> {
+    static RE_BRACKETS: OnceLock<Regex> = OnceLock::new();
+    let re = RE_BRACKETS.get_or_init(|| Regex::new(r"\[(.*?)\]").unwrap());
+
+    let mut prefixes = Vec::new();
+
+    for cap in re.captures_iter(subject) {
+        if let Some(content) = cap.get(1) {
+            // Split by whitespace/non-word chars?
+            // "PATCH net-next 1/2" -> "PATCH", "net-next", "1/2"
+            // "PATCH,net-next,1/2" -> "PATCH", "net-next", "1/2"
+            let tokens: Vec<&str> = content.as_str().split(|c: char| !c.is_alphanumeric() && c != '-' && c != '.' && c != '_').filter(|s| !s.is_empty()).collect();
+            
+            for token in tokens {
+                let lower = token.to_lowercase();
+                // Ignore standard tags
+                if lower == "patch" || lower == "rfc" || lower == "resend" {
+                    continue;
+                }
+                // Ignore versions (v2, v10)
+                if lower.starts_with('v') && lower[1..].chars().all(|c| c.is_ascii_digit()) {
+                    continue;
+                }
+                // Ignore pure numbers (often part of 1/2 or just garbage)
+                if token.chars().all(|c| c.is_ascii_digit()) {
+                    continue;
+                }
+                
+                prefixes.push(token.to_string());
+            }
+        }
+    }
+    prefixes.sort();
+    prefixes.dedup();
+    prefixes
+}
+
 pub fn clean_subject(subject: &str) -> String {
     static RE_BRACKETS: OnceLock<Regex> = OnceLock::new();
     let re = RE_BRACKETS.get_or_init(|| Regex::new(r"\[.*?\]").unwrap());
@@ -443,5 +480,17 @@ mod tests {
         let (index, total) = parse_subject_index(subject);
         assert_eq!(index, 1);
         assert_eq!(total, 2);
+    }
+
+    #[test]
+    fn test_get_subject_prefixes() {
+        assert_eq!(get_subject_prefixes("[PATCH net-next 1/2]"), vec!["net-next"]);
+        assert_eq!(get_subject_prefixes("[PATCH v2 bpf-next]"), vec!["bpf-next"]);
+        assert_eq!(get_subject_prefixes("[PATCH RFC]"), Vec::<String>::new());
+        assert_eq!(get_subject_prefixes("[PATCH 00/10]"), Vec::<String>::new()); // numbers ignored
+        assert_eq!(get_subject_prefixes("[PATCH 6.18]"), vec!["6.18"]);
+        assert_eq!(get_subject_prefixes("[PATCH net-next v3 0/1]"), vec!["net-next"]);
+        assert_eq!(get_subject_prefixes("[PATCH net-next,bpf 1/2]"), vec!["bpf", "net-next"]); // sorted
+        assert_eq!(get_subject_prefixes("[PATCH]"), Vec::<String>::new());
     }
 }

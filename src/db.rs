@@ -1491,7 +1491,7 @@ impl Database {
         let mut rows = self
             .conn
             .query(
-                "SELECT id, date, author, subject, subject_index, total_parts, received_parts, cover_letter_message_id FROM patchsets 
+                "SELECT id, date, author, subject, subject_index, total_parts, received_parts, cover_letter_message_id, thread_id FROM patchsets 
                  WHERE thread_id = ? OR (author = ? AND date BETWEEN ? AND ?)",
                 libsql::params![thread_id, author, window_start, window_end],
             )
@@ -1508,6 +1508,7 @@ impl Database {
             let existing_total: u32 = row.get(5).unwrap_or(1);
             let existing_received: u32 = row.get(6).unwrap_or(0);
             let existing_cover_id: Option<String> = row.get(7).ok();
+            let existing_thread_id: Option<i64> = row.get(8).ok();
 
             // Check if this message is already part of this patchset (Duplicate processing)
             // 1. Is it the cover letter?
@@ -1606,11 +1607,22 @@ impl Database {
                 author_match || series_match
             };
 
+            // Prefix matching (to separate different series from same author)
+            let same_thread = existing_thread_id.map_or(false, |tid| tid == thread_id);
+            let prefix_match = if same_thread {
+                true // Trust thread
+            } else {
+                let new_prefixes = crate::patch::get_subject_prefixes(subject);
+                let old_prefixes = crate::patch::get_subject_prefixes(&existing_subject);
+                new_prefixes == old_prefixes
+            };
+
             if author_or_series_match
                 && (!strict_author || (date - existing_date).abs() < 86400)
                 && versions_compatible
                 && total_parts == existing_total
                 && subject_match
+                && prefix_match
                 && !index_collision
             {
                 matches.push((id, existing_subject_index));
