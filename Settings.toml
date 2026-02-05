@@ -5,7 +5,7 @@ url = "sashiko.db"
 token = ""
 
 [mailing_lists]
-track = ["bpf", "linux-mm:org.kernel.linux-mm"]
+track = ["bpf", "linux-mm"]
 
 [nntp]
 server = "nntp.lore.kernel.org"

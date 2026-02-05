@@ -75,7 +75,12 @@ impl Ingestor {
                 } else if entry.contains('.') {
                     (entry.clone(), entry.clone())
                 } else {
-                    (entry.clone(), format!("org.kernel.vger.{}", entry))
+                    // Heuristics for common lists
+                    let group = match entry.as_str() {
+                        "linux-mm" => "org.kernel.linux-mm".to_string(),
+                        _ => format!("org.kernel.vger.{}", entry),
+                    };
+                    (entry.clone(), group)
                 }
             })
             .collect()
