@@ -1996,13 +1996,28 @@ impl Database {
         if let Some(list) = mailing_list {
             if !list.is_empty() {
                 if target == "patchset" {
-                    // Filter patchsets where any patch is in the mailing list
-                    conditions.push("id IN (SELECT patchset_id FROM patches p JOIN messages m ON p.message_id = m.message_id JOIN messages_mailing_lists mml ON m.id = mml.message_id JOIN mailing_lists ml ON mml.mailing_list_id = ml.id WHERE ml.nntp_group = ?)".to_string());
+                    // Filter patchsets where any patch OR the cover letter is in the mailing list
+                    // We use p.id to avoid ambiguity with joined tables (e.g. subsystems.id)
+                    conditions.push("p.id IN (
+                        SELECT patchset_id FROM patches p2 
+                        JOIN messages m ON p2.message_id = m.message_id 
+                        JOIN messages_mailing_lists mml ON m.id = mml.message_id 
+                        JOIN mailing_lists ml ON mml.mailing_list_id = ml.id 
+                        WHERE ml.nntp_group = ?
+                        UNION
+                        SELECT ps.id FROM patchsets ps 
+                        JOIN messages m ON ps.cover_letter_message_id = m.message_id 
+                        JOIN messages_mailing_lists mml ON m.id = mml.message_id 
+                        JOIN mailing_lists ml ON mml.mailing_list_id = ml.id 
+                        WHERE ml.nntp_group = ?
+                    )".to_string());
+                    params.push(list.clone());
+                    params.push(list);
                 } else {
                     // Filter messages
                     conditions.push("id IN (SELECT message_id FROM messages_mailing_lists mml JOIN mailing_lists ml ON mml.mailing_list_id = ml.id WHERE ml.nntp_group = ?)".to_string());
+                    params.push(list);
                 }
-                params.push(list);
             }
         }
 
@@ -2020,7 +2035,7 @@ impl Database {
                     params.push(format!("%{}%", val.trim()));
                 } else if let Some(val) = q.strip_prefix("subsystem:") {
                     let sub_query = if target == "patchset" {
-                        "id IN (SELECT patchset_id FROM patchsets_subsystems ps JOIN subsystems s ON ps.subsystem_id = s.id WHERE s.name LIKE ?)"
+                        "p.id IN (SELECT patchset_id FROM patchsets_subsystems ps JOIN subsystems s ON ps.subsystem_id = s.id WHERE s.name LIKE ?)"
                     } else {
                         "id IN (SELECT message_id FROM messages_subsystems ms JOIN subsystems s ON ms.subsystem_id = s.id WHERE s.name LIKE ?)"
                     };
@@ -2172,7 +2187,8 @@ impl Database {
 
     pub async fn count_patchsets(&self, query: Option<String>, mailing_list: Option<String>) -> Result<usize> {
         let (where_clause, params) = self.build_search(query, mailing_list, "patchset");
-        let sql = format!("SELECT COUNT(*) FROM patchsets {}", where_clause);
+        // We must alias patchsets as p because build_search uses p.id for filters
+        let sql = format!("SELECT COUNT(*) FROM patchsets p {}", where_clause);
 
         let mut args = Vec::new();
         for p in params {
@@ -4147,5 +4163,74 @@ mod tests {
             ps1, ps3,
             "Should create NEW patchset for non-duplicate when full"
         );
+    }
+
+    #[tokio::test]
+    async fn test_mailing_list_filtering() {
+        let db = setup_db().await;
+
+        // 1. Setup lists
+        db.ensure_mailing_list("List A", "list-a").await.unwrap();
+        db.ensure_mailing_list("List B", "list-b").await.unwrap();
+        let id_a = db.get_mailing_list_id_by_name("list-a").await.unwrap().unwrap();
+        let id_b = db.get_mailing_list_id_by_name("list-b").await.unwrap().unwrap();
+
+        // 2. Create threads
+        let t_a = db.create_thread("root_a", "Subject A", 100).await.unwrap();
+        let t_b = db.create_thread("root_b", "Subject B", 100).await.unwrap();
+
+        // 3. Create Message A (in List A)
+        db.create_message(
+            "msg_a", t_a, None, "Author", "Subject A", 100, "", "", "", None, Some("list-a")
+        ).await.unwrap();
+        let msg_a_id = db.get_message_id_by_msg_id("msg_a").await.unwrap().unwrap();
+        db.add_message_to_mailing_list(msg_a_id, id_a).await.unwrap();
+
+        // 4. Create Message B (in List B)
+        db.create_message(
+            "msg_b", t_b, None, "Author", "Subject B", 100, "", "", "", None, Some("list-b")
+        ).await.unwrap();
+        let msg_b_id = db.get_message_id_by_msg_id("msg_b").await.unwrap().unwrap();
+        db.add_message_to_mailing_list(msg_b_id, id_b).await.unwrap();
+
+        // 5. Create Patchsets
+        // Patchset A linked to msg_a (as cover letter)
+        let ps_a = db.create_patchset(
+            t_a, Some("msg_a"), "msg_a", "Subject A", "Author", 100, 1, 1, "", "", None, 0, None, true
+        ).await.unwrap().unwrap();
+
+        // Patchset B linked to msg_b (as cover letter)
+        let ps_b = db.create_patchset(
+            t_b, Some("msg_b"), "msg_b", "Subject B", "Author", 100, 1, 1, "", "", None, 0, None, true
+        ).await.unwrap().unwrap();
+
+        // 6. Test filtering messages
+        let msgs_a = db.get_messages(10, 0, None, Some("list-a".to_string())).await.unwrap();
+        assert_eq!(msgs_a.len(), 1);
+        assert_eq!(msgs_a[0].message_id, "msg_a");
+
+        let msgs_b = db.get_messages(10, 0, None, Some("list-b".to_string())).await.unwrap();
+        assert_eq!(msgs_b.len(), 1);
+        assert_eq!(msgs_b[0].message_id, "msg_b");
+
+        // 7. Add patch to ps_a to make it pass the CURRENT logic (patches only)
+        // db.create_message(
+        //     "patch_a_1", t_a, None, "Author", "Patch A 1", 101, "", "", "", None, Some("list-a")
+        // ).await.unwrap();
+        // let p_a_1_id = db.get_message_id_by_msg_id("patch_a_1").await.unwrap().unwrap();
+        // db.add_message_to_mailing_list(p_a_1_id, id_a).await.unwrap();
+        // db.create_patch(ps_a, "patch_a_1", 1, "").await.unwrap();
+
+        // Now ps_a has a patch in list-a.
+        // UPDATE: We commented out the patch creation above.
+        // ps_a only has a cover letter in list-a.
+        // The UNION query should find it.
+        let psets_a = db.get_patchsets(10, 0, None, Some("list-a".to_string())).await.unwrap();
+        assert_eq!(psets_a.len(), 1);
+        assert_eq!(psets_a[0].id, ps_a);
+
+        let psets_b = db.get_patchsets(10, 0, None, Some("list-a".to_string())).await.unwrap();
+        let found_b = psets_b.iter().any(|p| p.id == ps_b);
+        assert!(!found_b);
     }
 }
