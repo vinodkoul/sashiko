@@ -574,6 +574,26 @@ impl Reviewer {
 
                     if target_applied {
                         if let Some(error_msg) = json_output["error"].as_str() {
+                            if error_msg == "Patch application failed" {
+                                error!(
+                                    "Patch application failed for ps={} idx={} (series validation failed)",
+                                    patchset_id, index
+                                );
+                                let _ = ctx
+                                    .db
+                                    .complete_review(
+                                        review_id,
+                                        ReviewStatus::FailedToApply.as_str(),
+                                        error_msg,
+                                        None,
+                                        interaction_id.as_deref(),
+                                        None,
+                                        logs_str.as_deref(),
+                                    )
+                                    .await;
+                                return Ok(PatchResult::ApplyFailed);
+                            }
+
                             error!(
                                 "Review tool returned error for ps={} idx={}: {}",
                                 patchset_id, index, error_msg

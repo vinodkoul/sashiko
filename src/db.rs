@@ -2345,7 +2345,7 @@ impl Database {
             let mut patch_rows = self
                 .conn
                 .query(
-                    "SELECT p.id, p.message_id, p.part_index, m.id, m.subject 
+                    "SELECT p.id, p.message_id, p.part_index, m.id, m.subject, p.status, p.apply_error 
                  FROM patches p
                  LEFT JOIN messages m ON p.message_id = m.message_id
                  WHERE p.patchset_id = ? 
@@ -2360,6 +2360,8 @@ impl Database {
                     "part_index": p.get::<Option<i64>>(2).ok(),
                     "msg_db_id": p.get::<Option<i64>>(3).ok(),
                     "subject": p.get::<Option<String>>(4).ok(),
+                    "status": p.get::<Option<String>>(5).ok(),
+                    "apply_error": p.get::<Option<String>>(6).ok(),
                 }));
             }
 

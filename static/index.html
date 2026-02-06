@@ -1346,11 +1346,17 @@
 
                 const borderStyle = index === 0 ? '' : 'border-top:1px solid #eee; padding-top:8px;';
 
+                let statusHtml = '';
+                if (patch && (patch.status === 'error' || patch.status === 'failed')) {
+                     statusHtml = `<div style="background:#fff0f0; border:1px solid #ffcdd2; color:#d73a49; padding:8px; border-radius:4px; margin-bottom:8px; font-family:monospace; white-space:pre-wrap; font-size:0.9em;"><strong>Patch Application Failed:</strong>\n${escapeHtml(patch.apply_error || 'Unknown error')}</div>`;
+                }
+
                 reviewsHtml += `
                     <div id="patch-${pid}" style="margin-top:12px; ${borderStyle}">
                         <h3 style="display:flex; justify-content:space-between;">
                             <span>${header}</span>
                         </h3>
+                        ${statusHtml}
                         ${renderReviewList(reviews)}
                         <div style="text-align: right; margin-top: 8px;">
                              <a href="javascript:void(0)" onclick="document.getElementById('ai-reviews').scrollIntoView({behavior: 'smooth'})" style="font-size: 0.85em; color: #999; text-decoration: none;">↑ Back to Summary</a>
@@ -1360,7 +1366,10 @@
 
                 if (sortedPatchIds.length > 1) {
                     let summaryStatus = '';
-                    if (!reviews || reviews.length === 0) {
+                    
+                    if (patch && (patch.status === 'error' || patch.status === 'failed')) {
+                        summaryStatus = `<span style="color:#d73a49; font-weight:bold">Apply Failed</span>`;
+                    } else if (!reviews || reviews.length === 0) {
                         summaryStatus = '<span style="color:#888">No reviews</span>';
                     } else {
                          // Aggregate "MAX" across all reviews for this patch
