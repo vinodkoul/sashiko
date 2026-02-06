@@ -3686,7 +3686,7 @@ mod tests {
 
         // 2. Add dependencies to ps1 (Review, Tag, Subsystem)
         let review_id = db
-            .create_review(ps1, None)
+            .create_review(ps1, None, "gemini", "gemini-1.5-pro", None, None)
             .await
             .unwrap();
 
@@ -3839,7 +3839,7 @@ mod tests {
 
         // 2. Failed Review (No interaction) -> Should be detected
         let review_id = db
-            .create_review(ps_id, Some(patch_id))
+            .create_review(ps_id, Some(patch_id), "gemini", "gemini-1.5-pro", None, None)
             .await
             .unwrap();
         db.update_review_status(review_id, "FailedToApply", None)
