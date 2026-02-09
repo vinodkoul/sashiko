@@ -644,7 +644,7 @@ impl Reviewer {
         }
 
         let mut retries = 0;
-        let max_retries = 0;
+        let max_retries = ctx.settings.review.max_retries;
 
         loop {
             let review_id = ctx
