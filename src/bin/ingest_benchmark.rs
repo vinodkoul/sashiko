@@ -1,7 +1,16 @@
+use clap::Parser;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::BufReader;
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Path to the benchmark file
+    #[arg(short, long, default_value = "benchmark.json")]
+    file: String,
+}
 
 #[derive(Deserialize)]
 struct BenchmarkEntry {
@@ -17,7 +26,8 @@ enum SubmitRequest {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let file = File::open("benchmark.json")?;
+    let args = Args::parse();
+    let file = File::open(&args.file)?;
     let reader = BufReader::new(file);
     let entries: Vec<BenchmarkEntry> = serde_json::from_reader(reader)?;
 
