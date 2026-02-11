@@ -314,7 +314,7 @@ async fn process_entry(
 
             let expl = expl_raw
                 .trim()
-                .trim_start_matches(|c| c == ':' || c == '-' || c == ' ' || c == '\n')
+                .trim_start_matches([':', '-', ' ', '\n'])
                 .to_string();
             (status_raw, expl)
         }
