@@ -191,7 +191,6 @@ impl Worker {
 
         initial_user_message.push('\n');
         initial_user_message.push_str(&truncated_patch);
-        initial_user_message.push_str("\nThe diff content is omitted. You are reviewing the currently checked out commit. Use `git_diff` and other tools to analyze the changes.\n");
 
         let input_context = format!(
             "System: {}\n\nUser: {}",
