@@ -21,7 +21,7 @@ mod tools_test;
 
 use crate::ai::gemini::{
     Content, FunctionResponse, GenAiClient, GenerateContentRequest,
-    GenerateContentWithCacheRequest, GenerationConfig, Part,
+    GenerateContentWithCacheRequest, GenerationConfig, Part, ThinkingConfig,
 };
 use crate::ai::token_budget::TokenBudget;
 use crate::worker::prompts::PromptRegistry;
@@ -195,6 +195,7 @@ impl Worker {
             parts: vec![Part::Text {
                 text: system_prompt,
                 thought_signature: None,
+                thought: false,
             }],
         };
 
@@ -203,6 +204,7 @@ impl Worker {
             parts: vec![Part::Text {
                 text: initial_user_message,
                 thought_signature: None,
+                thought: false,
             }],
         };
         self.history_tokens
@@ -241,11 +243,6 @@ impl Worker {
             let response_schema = json!({
                 "type": "object",
                 "properties": {
-                    "analysis_trace": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Step-by-step analysis trace."
-                    },
                     "summary": { "type": "string", "description": "High-level summary of the original change being reviewed." },
                     "review_inline": {
                         "type": "string",
@@ -278,7 +275,7 @@ impl Worker {
                         }
                     }
                 },
-                "required": ["analysis_trace", "summary", "findings"]
+                "required": ["summary", "findings"]
             });
 
             // Enforce token budget by pruning
@@ -291,6 +288,9 @@ impl Worker {
                 response_mime_type: Some("application/json".to_string()),
                 response_schema: Some(response_schema),
                 temperature: Some(self.temperature),
+                thinking_config: Some(ThinkingConfig {
+                    include_thoughts: true,
+                }),
             });
 
             let resp = if let Some(cache_name) = &self.cache_name {
@@ -441,8 +441,10 @@ impl Worker {
                             },
                         });
                     }
-                    Part::Text { text, .. } => {
-                        final_text.push_str(text);
+                    Part::Text { text, thought, .. } => {
+                        if !*thought {
+                            final_text.push_str(text);
+                        }
                     }
                     _ => {}
                 }

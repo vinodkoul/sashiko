@@ -277,6 +277,7 @@ async fn process_entry(
             parts: vec![Part::Text {
                 text: prompt,
                 thought_signature: None,
+                thought: false,
             }],
         }],
         tools: None,

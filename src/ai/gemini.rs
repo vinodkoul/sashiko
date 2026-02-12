@@ -36,6 +36,8 @@ pub enum Part {
         text: String,
         #[serde(rename = "thoughtSignature", skip_serializing_if = "Option::is_none")]
         thought_signature: Option<String>,
+        #[serde(default)]
+        thought: bool,
     },
     FunctionCall {
         #[serde(rename = "functionCall")]
@@ -91,6 +93,12 @@ pub struct GenerateContentRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ThinkingConfig {
+    pub include_thoughts: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GenerationConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_mime_type: Option<String>,
@@ -98,6 +106,8 @@ pub struct GenerationConfig {
     pub response_schema: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_config: Option<ThinkingConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -543,6 +553,7 @@ impl AiProvider for GeminiClient {
             parts: vec![Part::Text {
                 text: request.prompt,
                 thought_signature: None,
+                thought: false,
             }],
         }];
 
@@ -551,6 +562,7 @@ impl AiProvider for GeminiClient {
             parts: vec![Part::Text {
                 text: s,
                 thought_signature: None,
+                thought: false,
             }],
         });
 

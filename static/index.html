@@ -1861,7 +1861,11 @@ ${escapeHtml(data.body || '(no body)', true, false)}</pre>
                     let content = '';
                     parts.forEach(part => {
                         if (part.text) {
-                            content += `<div>${escapeHtml(part.text)}</div>`;
+                            if (part.thought) {
+                                content += `<div style="color: #6a737d; font-style: italic; border-left: 2px solid #d0d7de; padding-left: 8px; margin: 4px 0;">${escapeHtml(part.text)}</div>`;
+                            } else {
+                                content += `<div>${escapeHtml(part.text)}</div>`;
+                            }
                         } else if (part.functionCall || part.function_call) {
                             const fc = part.functionCall || part.function_call;
                             const callId = jsonCounter++;

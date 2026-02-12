@@ -131,6 +131,7 @@ impl CacheManager {
                 parts: vec![Part::Text {
                     text: PromptRegistry::get_system_identity().to_string(),
                     thought_signature: None,
+                    thought: false,
                 }],
             }),
             contents: Some(vec![Content {
@@ -138,6 +139,7 @@ impl CacheManager {
                 parts: vec![Part::Text {
                     text: context_str,
                     thought_signature: None,
+                    thought: false,
                 }],
             }]),
             tools: self.tools.clone(),

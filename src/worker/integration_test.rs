@@ -58,8 +58,9 @@ mod tests {
                     content: Content {
                         role: "model".to_string(),
                         parts: vec![Part::Text {
-                            text: "```json\n{\"summary\": \"Fallback\", \"findings\": [], \"analysis_trace\": []}\n```".to_string(),
+                            text: "```json\n{\"summary\": \"Fallback\", \"findings\": []}\n```".to_string(),
                             thought_signature: None,
+                            thought: false,
                         }],
                     },
                     finish_reason: Some("STOP".to_string()),
@@ -112,6 +113,7 @@ mod tests {
                     parts: vec![Part::Text {
                         text: text.to_string(),
                         thought_signature: None,
+                        thought: false,
                     }],
                 },
                 finish_reason: Some("STOP".to_string()),
@@ -160,7 +162,6 @@ mod tests {
         let (linux_path, _prompts_path) = get_test_paths();
 
         let mock_response = json!({
-            "analysis_trace": ["Trace 1"],
             "summary": "Mock summary",
             "findings": []
         });
@@ -194,7 +195,6 @@ mod tests {
         // 2. Final JSON response (after receiving tool output)
 
         let final_response = json!({
-            "analysis_trace": ["Read README", "Analyzed"],
             "summary": "README is good",
             "findings": []
         });
