@@ -193,3 +193,87 @@ pub mod gemini;
 pub mod proxy;
 pub mod token_budget;
 pub mod truncator;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_ai_request_contract() -> Result<()> {
+        let request = AiRequest {
+            messages: vec![AiMessage {
+                role: AiRole::User,
+                content: Some("Hello".to_string()),
+                tool_calls: None,
+                tool_call_id: None,
+            }],
+            tools: None,
+            temperature: Some(0.5),
+            preloaded_context: Some("cache-123".to_string()),
+            response_format: Some(AiResponseFormat::Text),
+        };
+
+        // This matches the format used in StdioGeminiClient and expected by the Worker
+        let msg = json!({
+            "type": "ai_request",
+            "payload": request
+        });
+
+        let serialized = serde_json::to_string(&msg)?;
+        let deserialized: serde_json::Value = serde_json::from_str(&serialized)?;
+
+        assert_eq!(deserialized["type"], "ai_request");
+        assert_eq!(deserialized["payload"]["temperature"], 0.5);
+        assert_eq!(deserialized["payload"]["preloaded_context"], "cache-123");
+        assert_eq!(deserialized["payload"]["messages"][0]["role"], "user");
+        assert_eq!(deserialized["payload"]["messages"][0]["content"], "Hello");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_ai_response_contract() -> Result<()> {
+        let raw_json = json!({
+            "type": "ai_response",
+            "payload": {
+                "content": "AI response text",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "function_name": "my_tool",
+                        "arguments": {"a": 1},
+                        "thought_signature": "sig_123"
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 50,
+                    "total_tokens": 150
+                }
+            }
+        });
+
+        let serialized = serde_json::to_string(&raw_json)?;
+        let deserialized: serde_json::Value = serde_json::from_str(&serialized)?;
+
+        assert_eq!(deserialized["type"], "ai_response");
+
+        let payload: AiResponse = serde_json::from_value(deserialized["payload"].clone())?;
+
+        assert_eq!(payload.content.as_deref(), Some("AI response text"));
+        let tool_calls = payload.tool_calls.unwrap();
+        assert_eq!(tool_calls.len(), 1);
+        assert_eq!(tool_calls[0].id, "call_1");
+        assert_eq!(tool_calls[0].function_name, "my_tool");
+        assert_eq!(tool_calls[0].arguments["a"], 1);
+        assert_eq!(tool_calls[0].thought_signature.as_deref(), Some("sig_123"));
+
+        let usage = payload.usage.unwrap();
+        assert_eq!(usage.prompt_tokens, 100);
+        assert_eq!(usage.completion_tokens, 50);
+        assert_eq!(usage.total_tokens, 150);
+
+        Ok(())
+    }
+}
