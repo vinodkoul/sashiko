@@ -443,3 +443,56 @@ fn estimate_tokens_generic(request: &AiRequest) -> usize {
 
     total
 }
+
+// --- AiProvider Implementation ---
+
+#[async_trait]
+impl AiProvider for ClaudeClient {
+    async fn generate_content(&self, request: AiRequest) -> Result<AiResponse> {
+        // 1. Translate generic request to Claude format
+        let mut claude_req = translate_ai_request(&request, self.enable_caching)?;
+
+        // 2. Set the model
+        claude_req.model = self.model.clone();
+
+        // 3. Make API call (will add retry logic in Step 7)
+        let response = self.post_request(&claude_req).await?;
+
+        // 4. Translate response back to generic format
+        translate_ai_response(&response)
+    }
+
+    fn estimate_tokens(&self, request: &AiRequest) -> usize {
+        // Reuse existing cl100k_base tokenizer from token_budget.rs
+        estimate_tokens_generic(request)
+    }
+
+    fn get_capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities {
+            model_name: self.model.clone(),
+            max_input_tokens: 200_000,  // Claude 3.5 Sonnet context window
+            max_output_tokens: 8_192,   // Claude output limit
+            supports_function_calling: true,
+            supports_context_caching: true,
+        }
+    }
+
+    // Optional caching methods - implement as no-ops for now
+    // Claude uses automatic caching, not explicit cache creation
+    async fn create_context_cache(
+        &self,
+        _request: AiRequest,
+        _ttl: String,
+        _display_name: Option<String>,
+    ) -> Result<String> {
+        bail!("Claude uses automatic caching, not explicit cache creation")
+    }
+
+    async fn delete_context_cache(&self, _name: &str) -> Result<()> {
+        bail!("Claude uses automatic caching, not explicit cache management")
+    }
+
+    async fn list_context_caches(&self) -> Result<Vec<(String, String)>> {
+        bail!("Claude uses automatic caching, not explicit cache management")
+    }
+}
