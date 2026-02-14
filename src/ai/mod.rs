@@ -188,11 +188,23 @@ pub fn create_provider(settings: &Settings) -> Result<Arc<dyn AiProvider>> {
             Ok(Arc::new(gemini::GeminiClient::new(model)))
         }
         "stdio-gemini" => Ok(Arc::new(gemini::StdioGeminiClient)),
+        "claude" => {
+            let model = settings.ai.model.clone();
+            let enable_caching = settings
+                .ai
+                .claude
+                .as_ref()
+                .map(|c| c.prompt_caching)
+                .unwrap_or(true); // Default to enabled
+            Ok(Arc::new(claude::ClaudeClient::new(model, enable_caching)))
+        }
+        "stdio-claude" => Ok(Arc::new(claude::StdioClaudeClient)),
         p => bail!("Unsupported AI provider: {}", p),
     }
 }
 
 pub mod cache;
+pub mod claude;
 pub mod gemini;
 pub mod proxy;
 pub mod token_budget;

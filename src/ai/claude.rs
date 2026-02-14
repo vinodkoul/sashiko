@@ -21,7 +21,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
-use tracing::{error, warn};
+use tracing::error;
 
 // --- Claude API Request/Response Types ---
 
@@ -199,7 +199,10 @@ impl ClaudeClient {
                 .context("Failed to parse Claude API response")?;
             Ok(response)
         } else {
-            let error_body = res.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            let error_body = res
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
 
             match status.as_u16() {
                 429 => {
@@ -388,10 +391,7 @@ fn translate_ai_response(resp: &ClaudeResponse) -> Result<AiResponse> {
         prompt_tokens: resp.usage.input_tokens as usize,
         completion_tokens: resp.usage.output_tokens as usize,
         total_tokens: (resp.usage.input_tokens + resp.usage.output_tokens) as usize,
-        cached_tokens: resp
-            .usage
-            .cache_read_input_tokens
-            .map(|c| c as usize),
+        cached_tokens: resp.usage.cache_read_input_tokens.map(|c| c as usize),
     };
 
     Ok(AiResponse {
@@ -470,10 +470,7 @@ impl AiProvider for ClaudeClient {
     fn get_capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             model_name: self.model.clone(),
-            max_input_tokens: 200_000,  // Claude 3.5 Sonnet context window
-            max_output_tokens: 8_192,   // Claude output limit
-            supports_function_calling: true,
-            supports_context_caching: true,
+            context_window_size: 200_000, // Claude 3.5 Sonnet context window
         }
     }
 
@@ -549,10 +546,7 @@ impl AiProvider for StdioClaudeClient {
     fn get_capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             model_name: "stdio-claude".to_string(),
-            max_input_tokens: 200_000,
-            max_output_tokens: 8_192,
-            supports_function_calling: true,
-            supports_context_caching: true,
+            context_window_size: 200_000,
         }
     }
 
