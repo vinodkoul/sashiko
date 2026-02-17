@@ -14,10 +14,8 @@
 
 use crate::ReviewStatus;
 use crate::ai::cache::CacheManager;
-use crate::ai::gemini::{
-    GeminiClient, GeminiError, GenerateContentRequest, GenerateContentWithCacheRequest,
-};
 use crate::ai::proxy::QuotaManager;
+use crate::ai::{AiProvider, AiRequest, AiResponse, create_provider};
 use crate::baseline::{BaselineRegistry, BaselineResolution, extract_files_from_diff};
 use crate::db::{AiInteractionParams, Database, Finding, PatchsetRow, Severity, ToolUsage};
 use crate::git_ops::{GitWorktree, ensure_remote, get_commit_hash};
@@ -44,6 +42,7 @@ struct ReviewContext {
     active_cache_name: Arc<Mutex<Option<String>>>,
     current_cache_name: Option<String>,
     target_review_count: usize,
+    provider: Arc<dyn AiProvider>,
 }
 
 enum PatchResult {
@@ -83,6 +82,7 @@ pub struct Reviewer {
     quota_manager: Arc<QuotaManager>,
     cache_manager: Arc<CacheManager>,
     active_cache_name: Arc<Mutex<Option<String>>>,
+    provider: Arc<dyn AiProvider>,
 }
 
 use crate::worker::tools::ToolBox;
@@ -111,22 +111,24 @@ impl Reviewer {
             }
         };
 
+        // Initialize Provider
+        let provider = create_provider(&settings).expect("Failed to create AI provider");
+
         // Initialize CacheManager
         // Assuming prompts are in "third_party/prompts/kernel" in CWD.
         let prompts_dir = PathBuf::from("third_party/prompts/kernel");
-        let client = Box::new(GeminiClient::new(settings.ai.model.clone()));
 
         // We need tool definitions for the cache.
         // We use dummy paths for ToolBox here because we only need declarations,
         // not execution capability.
-        let tools_def = ToolBox::new(PathBuf::from("."), None).get_declarations();
+        let tools_def = ToolBox::new(PathBuf::from("."), None).get_declarations_generic();
 
         let cache_manager = Arc::new(CacheManager::new(
             prompts_dir,
-            client,
+            provider.clone(),
             settings.ai.model.clone(),
             "3600s".to_string(),
-            Some(vec![tools_def]),
+            Some(tools_def),
         ));
 
         Self {
@@ -137,6 +139,7 @@ impl Reviewer {
             quota_manager: Arc::new(QuotaManager::new()),
             cache_manager,
             active_cache_name: Arc::new(Mutex::new(None)),
+            provider,
         }
     }
 
@@ -156,17 +159,24 @@ impl Reviewer {
             );
         }
 
-        // Ensure Gemini Cache
-        if self.settings.ai.explicit_prompts_caching {
+        // Ensure Context Cache
+        if self
+            .settings
+            .ai
+            .gemini
+            .as_ref()
+            .map(|g| g.explicit_prompt_caching)
+            .unwrap_or(false)
+        {
             match self.cache_manager.ensure_cache(None).await {
                 Ok(name) => {
-                    info!("Gemini Context Cache initialized: {}", name);
+                    info!("AI Context Cache initialized: {}", name);
                     let mut guard = self.active_cache_name.lock().await;
                     *guard = Some(name);
                 }
                 Err(e) => {
                     error!(
-                        "Failed to initialize Gemini Context Cache: {}. Proceeding without cache (higher cost/latency).",
+                        "Failed to initialize AI Context Cache: {}. Proceeding without cache (higher cost/latency).",
                         e
                     );
                 }
@@ -231,6 +241,7 @@ impl Reviewer {
                 active_cache_name: self.active_cache_name.clone(),
                 current_cache_name: current_cache_name.clone(),
                 target_review_count,
+                provider: self.provider.clone(),
             };
 
             tokio::spawn(async move {
@@ -698,6 +709,7 @@ impl Reviewer {
                 ctx.active_cache_name.clone(),
                 review_id,
                 worktree_path,
+                ctx.provider.clone(),
             )
             .await;
 
@@ -719,22 +731,27 @@ impl Reviewer {
                     if let Some(h) = history.and_then(|h| h.as_array()) {
                         // Tool usage recording (same as before)
                         for item in h {
-                            if let Some(parts) = item.get("parts").and_then(|p| p.as_array()) {
-                                for part in parts {
-                                    if let Some(call) = part.get("functionCall") {
-                                        let name = call["name"].as_str().unwrap_or("unknown");
-                                        let args = call["args"].to_string();
-                                        let _ = ctx
-                                            .db
-                                            .create_tool_usage(ToolUsage {
-                                                review_id,
-                                                provider: ctx.settings.ai.provider.clone(),
-                                                model: ctx.settings.ai.model.clone(),
-                                                tool_name: name.to_string(),
-                                                arguments: Some(args),
-                                                output_length: 0,
-                                            })
-                                            .await;
+                            if let Some(role) = item.get("role").and_then(|r| r.as_str()) {
+                                if role == "assistant" {
+                                    if let Some(calls) =
+                                        item.get("tool_calls").and_then(|c| c.as_array())
+                                    {
+                                        for call in calls {
+                                            let name =
+                                                call["function_name"].as_str().unwrap_or("unknown");
+                                            let args = call["arguments"].to_string();
+                                            let _ = ctx
+                                                .db
+                                                .create_tool_usage(ToolUsage {
+                                                    review_id,
+                                                    provider: ctx.settings.ai.provider.clone(),
+                                                    model: ctx.settings.ai.model.clone(),
+                                                    tool_name: name.to_string(),
+                                                    arguments: Some(args),
+                                                    output_length: 0,
+                                                })
+                                                .await;
+                                        }
                                     }
                                 }
                             }
@@ -986,6 +1003,7 @@ async fn run_review_tool(
     active_cache_name: Arc<Mutex<Option<String>>>,
     review_id: i64,
     worktree_path: Option<&Path>,
+    provider: Arc<dyn AiProvider>,
 ) -> Result<serde_json::Value> {
     let exe_path = std::env::current_exe()?;
     let bin_dir = exe_path
@@ -1011,6 +1029,8 @@ async fn run_review_tool(
         baseline,
         "--worktree-dir",
         &settings.review.worktree_dir,
+        "--ai-provider",
+        "stdio-gemini",
     ]);
 
     cmd.env("NO_COLOR", "1");
@@ -1025,7 +1045,13 @@ async fn run_review_tool(
     }
 
     if let Some(name) = cache_name {
-        if settings.ai.explicit_prompts_caching {
+        if settings
+            .ai
+            .gemini
+            .as_ref()
+            .map(|g| g.explicit_prompt_caching)
+            .unwrap_or(false)
+        {
             cmd.arg("--gemini-cache").arg(name);
         }
     }
@@ -1043,12 +1069,6 @@ async fn run_review_tool(
     cmd.stderr(Stdio::piped());
 
     let mut child = cmd.spawn()?;
-
-    // We need to hold stdin to write responses
-    // But `child.stdin` is Option. We took it. We need to pass it to loop.
-    // However, `child.spawn()` returns child.
-    // The previous block took stdin.
-    // I need to restructure to keep `stdin`.
 
     if let Some(stderr) = child.stderr.take() {
         tokio::spawn(async move {
@@ -1089,9 +1109,6 @@ async fn run_review_tool(
 
             let reader = BufReader::new(stdout);
             let mut lines = reader.lines();
-            let client = GeminiClient::new(
-                settings.ai.model.clone(),
-            );
             let mut final_result: Option<Value> = None;
             let mut ai_started = false;
 
@@ -1099,162 +1116,181 @@ async fn run_review_tool(
                 // Try to parse as JSON
                 if let Ok(json_msg) = serde_json::from_str::<Value>(&line) {
                     if let Some(type_str) = json_msg.get("type").and_then(|v| v.as_str()) {
-                        if type_str == "ai_request" {
-                            if !ai_started {
-                                let _ = db
-                                    .update_review_status(
-                                        review_id,
-                                        ReviewStatus::InReview.as_str(),
-                                        None,
-                                    )
-                                    .await;
-                                ai_started = true;
-                            }
-                            if let Some(payload_val) = json_msg.get("payload") {
-                                if let Ok(req) = serde_json::from_value::<GenerateContentRequest>(
-                                    payload_val.clone(),
-                                ) {
-                                    // Handle Standard AI Request
-                                    let resp_payload = loop {
-                                        quota_manager.wait_for_access().await;
-                                        match client.generate_content_single(&req).await {
-                                            Ok(resp) => break Ok(resp),
-                                            Err(e) => {
-                                                if let Some(GeminiError::QuotaExceeded(d)) = e.downcast_ref::<GeminiError>() {
-                                                    quota_manager.report_quota_error(*d).await;
-                                                    continue;
-                                                }
-                                                break Err(e);
-                                            }
-                                        }
-                                    };
-
-                                    let reply = match resp_payload {
-                                        Ok(p) => json!({ "type": "ai_response", "payload": p }),
-                                        Err(e) => {
-                                            json!({ "type": "error", "payload": e.to_string() })
-                                        }
-                                    };
-                                    let mut reply_str = serde_json::to_string(&reply)?;
-                                    reply_str.push('\n');
-                                    if let Err(e) = stdin.write_all(reply_str.as_bytes()).await {
-                                        error!("Failed to write AI response to child: {}", e);
-                                        break;
-                                    }
-                                    let _ = stdin.flush().await;
+                        match type_str {
+                            "ai_request" | "ai_request_with_cache" => {
+                                if !ai_started {
+                                    let _ = db
+                                        .update_review_status(
+                                            review_id,
+                                            ReviewStatus::InReview.as_str(),
+                                            None,
+                                        )
+                                        .await;
+                                    ai_started = true;
                                 }
-                            }
-                        } else if type_str == "ai_request_with_cache" {
-                            if !ai_started {
-                                let _ = db
-                                    .update_review_status(
-                                        review_id,
-                                        ReviewStatus::InReview.as_str(),
-                                        None,
-                                    )
-                                    .await;
-                                ai_started = true;
-                            }
-                            if let Some(payload_val) = json_msg.get("payload") {
-                                if let Ok(req) =
-                                    serde_json::from_value::<GenerateContentWithCacheRequest>(
-                                        payload_val.clone(),
-                                    )
-                                {
-                                    // Handle Cached AI Request
-                                    let mut current_req = req;
-                                    let mut updated_cache_name: Option<String> = None;
-
-                                    // Check if we have a newer cache name and update the request if needed
+                                if let Some(payload_val) = json_msg.get("payload") {
+                                    if let Ok(mut req) =
+                                        serde_json::from_value::<AiRequest>(payload_val.clone())
                                     {
-                                        let guard = active_cache_name.lock().await;
-                                        if let Some(active_name) = guard.as_ref() {
-                                            if &current_req.cached_content != active_name {
-                                                info!(
-                                                    "Updating stale cache name in request: {} -> {}",
-                                                    current_req.cached_content, active_name
-                                                );
-                                                current_req.cached_content = active_name.clone();
-                                                updated_cache_name = Some(active_name.clone());
+                                        // Update stale cache name if needed
+                                        {
+                                            let guard = active_cache_name.lock().await;
+                                            if let Some(active_name) = guard.as_ref() {
+                                                if req.preloaded_context.is_some()
+                                                    && req.preloaded_context.as_ref()
+                                                        != Some(active_name)
+                                                {
+                                                    info!(
+                                                        "Updating stale cache name in request: {:?} -> {}",
+                                                        req.preloaded_context, active_name
+                                                    );
+                                                    req.preloaded_context =
+                                                        Some(active_name.clone());
+                                                }
                                             }
                                         }
-                                    }
 
-                                    let mut resp_payload = loop {
-                                        quota_manager.wait_for_access().await;
-                                        match client.generate_content_with_cache_single(&current_req).await
-                                        {
-                                            Ok(resp) => break Ok(resp),
-                                            Err(e) => {
-                                                if let Some(gemini_err) = e.downcast_ref::<GeminiError>() {
-                                                    match gemini_err {
-                                                        GeminiError::QuotaExceeded(d) => {
-                                                            quota_manager.report_quota_error(*d).await;
-                                                            continue;
-                                                        }
-                                                        GeminiError::PermissionDenied(_) => {
-                                                            warn!("Permission denied for cache. Refreshing cache...");
-                                                            match cache_manager
-                                                                .ensure_cache(Some(&current_req.cached_content))
-                                                                .await
+                                        let mut cache_retry_done = false;
+                                        let resp_payload = loop {
+                                            quota_manager.wait_for_access().await;
+                                            match provider.generate_content(req.clone()).await {
+                                                Ok(resp) => break Ok(resp),
+                                                Err(e) => {
+                                                    let err_str = e.to_string();
+                                                    // Handle Gemini context cache expiration (403 Permission Denied: CachedContent not found)
+                                                    if !cache_retry_done
+                                                        && err_str.contains("403")
+                                                        && err_str.contains("CachedContent not found")
+                                                    {
+                                                        warn!("AI Context Cache expired or not found. Refreshing...");
+                                                        cache_retry_done = true;
+
+                                                        let mut guard =
+                                                            active_cache_name.lock().await;
+
+                                                        let stale_cache =
+                                                            req.preloaded_context.clone();
+
+                                                        // Check if another task already refreshed it
+                                                        if let Some(active_name) = guard.as_ref() {
+                                                            if stale_cache.as_ref()
+                                                                != Some(active_name)
                                                             {
-                                                                Ok(new_name) => {
-                                                                    info!("Refreshed cache: {}", new_name);
-                                                                    current_req.cached_content = new_name.clone();
-                                                                    updated_cache_name = Some(new_name.clone());
-                                                                    let mut guard = active_cache_name.lock().await;
-                                                                    *guard = Some(new_name);
-                                                                    continue;
-                                                                }
-                                                                Err(create_err) => {
-                                                                    error!("Failed to recreate cache: {}", create_err);
-                                                                    break Err(e);
-                                                                }
+                                                                info!(
+                                                                    "Cache already refreshed by another task: {:?} -> {}",
+                                                                    stale_cache, active_name
+                                                                );
+                                                                req.preloaded_context =
+                                                                    Some(active_name.clone());
+                                                                drop(guard);
+                                                                continue;
                                                             }
                                                         }
-                                                        _ => break Err(e),
+
+                                                        // Clear the current active cache name as requested
+                                                        *guard = None;
+
+                                                        // Refresh cache via manager
+                                                        match cache_manager
+                                                            .ensure_cache(stale_cache.as_deref())
+                                                            .await
+                                                        {
+                                                            Ok(new_name) => {
+                                                                info!(
+                                                                    "AI Context Cache refreshed: {}",
+                                                                    new_name
+                                                                );
+                                                                *guard = Some(new_name.clone());
+                                                                req.preloaded_context =
+                                                                    Some(new_name);
+                                                                drop(guard);
+                                                                continue;
+                                                            }
+                                                            Err(refresh_err) => {
+                                                                error!(
+                                                                    "Failed to refresh AI Context Cache: {}",
+                                                                    refresh_err
+                                                                );
+                                                                // If refresh failed, we break with original error or refresh error
+                                                                break Err(refresh_err);
+                                                            }
+                                                        }
                                                     }
+
+                                                    break Err(e);
                                                 }
-                                                break Err(e);
                                             }
-                                        }
-                                    };
+                                        };
 
-                                    // Inject new cache name into response metadata if updated
-                                    if let Some(new_name) = updated_cache_name {
-                                        if let Ok(resp) = resp_payload.as_mut() {
-                                            let usage = resp.usage_metadata.get_or_insert_with(|| crate::ai::gemini::UsageMetadata {
-                                                prompt_token_count: 0,
-                                                candidates_token_count: None,
-                                                total_token_count: 0,
-                                                cached_content_token_count: None,
-                                                extra: Some(std::collections::HashMap::new()),
-                                            });
-                                            let extra = usage.extra.get_or_insert_with(std::collections::HashMap::new);
-                                            extra.insert("new_cache_name".to_string(), serde_json::Value::String(new_name));
+                                        let reply = match resp_payload {
+                                            Ok(p) => json!({ "type": "ai_response", "payload": p }),
+                                            Err(e) => {
+                                                json!({ "type": "error", "payload": e.to_string() })
+                                            }
+                                        };
+                                        let mut reply_str = serde_json::to_string(&reply)?;
+                                        reply_str.push('\n');
+                                        if let Err(e) = stdin.write_all(reply_str.as_bytes()).await {
+                                            error!("Failed to write AI response to child: {}", e);
+                                            break;
                                         }
+                                        let _ = stdin.flush().await;
                                     }
+                                }
+                            }
+                            "ai_create_cache" => {
+                                if let Some(payload) = json_msg.get("payload") {
+                                    if let Ok(req) =
+                                        serde_json::from_value::<AiRequest>(payload["request"].clone())
+                                    {
+                                        let ttl = payload["ttl"].as_str().unwrap_or("3600s").to_string();
+                                        let display_name = payload["display_name"].as_str().map(|s| s.to_string());
 
-                                    let reply = match resp_payload {
-                                        Ok(p) => json!({ "type": "ai_response", "payload": p }),
-                                        Err(e) => {
-                                            json!({ "type": "error", "payload": e.to_string() })
-                                        }
+                                        let result = provider.create_context_cache(req, ttl, display_name).await;
+                                        let reply = match result {
+                                            Ok(name) => json!({
+                                                "type": "ai_response",
+                                                "payload": AiResponse {
+                                                    content: Some(name),
+                                                    tool_calls: None,
+                                                    usage: None,
+                                                }
+                                            }),
+                                            Err(e) => json!({ "type": "error", "payload": e.to_string() }),
+                                        };
+                                        let mut reply_str = serde_json::to_string(&reply)?;
+                                        reply_str.push('\n');
+                                        stdin.write_all(reply_str.as_bytes()).await?;
+                                        stdin.flush().await?;
+                                    }
+                                }
+                            }
+                            "ai_delete_cache" => {
+                                if let Some(name) = json_msg.get("payload").and_then(|v| v.as_str()) {
+                                    let result = provider.delete_context_cache(name).await;
+                                    let reply = match result {
+                                        Ok(_) => json!({
+                                            "type": "ai_response",
+                                            "payload": AiResponse {
+                                                content: None,
+                                                tool_calls: None,
+                                                usage: None,
+                                            }
+                                        }),
+                                        Err(e) => json!({ "type": "error", "payload": e.to_string() }),
                                     };
                                     let mut reply_str = serde_json::to_string(&reply)?;
                                     reply_str.push('\n');
-                                    if let Err(e) = stdin.write_all(reply_str.as_bytes()).await {
-                                        error!("Failed to write AI response to child: {}", e);
-                                        break;
-                                    }
-                                    let _ = stdin.flush().await;
+                                    stdin.write_all(reply_str.as_bytes()).await?;
+                                    stdin.flush().await?;
                                 }
                             }
-                        } else {
-                            // Unknown type. Assume it's result if it matches result structure.
-                            if json_msg.get("patchset_id").is_some() {
-                                final_result = Some(json_msg);
-                                break;
+                            _ => {
+                                // Unknown type. Assume it's result if it matches result structure.
+                                if json_msg.get("patchset_id").is_some() {
+                                    final_result = Some(json_msg);
+                                    break;
+                                }
                             }
                         }
                     } else {
@@ -1381,5 +1417,396 @@ async fn run_review_tool(
 
             Err(anyhow::anyhow!("Review tool timed out"))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ai::proxy::QuotaManager;
+    use crate::ai::{AiRequest, AiResponse, ProviderCapabilities};
+    use crate::db::Database;
+    use crate::settings::Settings;
+    use async_trait::async_trait;
+    use std::fs::Permissions;
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    struct MockProvider;
+    #[async_trait]
+    impl AiProvider for MockProvider {
+        async fn generate_content(&self, _request: AiRequest) -> Result<AiResponse> {
+            // Simulate a slow AI response to allow logs to accumulate
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            Ok(AiResponse {
+                content: Some("Mocked AI response".to_string()),
+                tool_calls: None,
+                usage: None,
+            })
+        }
+        fn estimate_tokens(&self, _request: &AiRequest) -> usize {
+            0
+        }
+        fn get_capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities {
+                model_name: "mock".to_string(),
+                context_window_size: 1000,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_run_review_tool_concurrency() -> Result<()> {
+        let temp_dir = tempdir()?;
+        let bin_path = temp_dir.path().join("mock_review");
+
+        // Create a mock "review" binary that:
+        // 1. Reads initial JSON from stdin.
+        // 2. Spams 1000 lines of logs to STDOUT.
+        // 3. Sends an 'ai_request' JSON to STDOUT.
+        // 4. Reads 'ai_response' from stdin.
+        // 5. Prints final result JSON to STDOUT.
+        let mock_script = r#"#!/bin/bash
+# 1. Read input
+read -r input
+
+# 2. Spam logs
+for i in {1..1000}; do
+    echo "LOG LINE $i - This is a long log line to fill up buffers and test if the parent drains stdout correctly while waiting for AI response."
+done
+
+# 3. Send AI request
+echo '{"type": "ai_request", "payload": {"messages": [{"role": "user", "content": "hello"}], "temperature": 0.5}}'
+
+# 4. Wait for AI response
+read -r ai_response
+
+# 5. Send final result
+echo '{"patchset_id": 1, "patches": [{"index": 1, "status": "applied"}]}'
+"#;
+
+        std::fs::write(&bin_path, mock_script)?;
+        std::fs::set_permissions(&bin_path, Permissions::from_mode(0o755))?;
+
+        // Setup Sashiko dependencies
+        let mut settings = Settings::new()?;
+        settings.database.url = ":memory:".to_string();
+
+        let _db = Arc::new(Database::new(&settings.database).await?);
+        let _quota_manager = Arc::new(QuotaManager::new());
+        let _cache_manager = Arc::new(CacheManager::new(
+            PathBuf::from("."),
+            Arc::new(MockProvider),
+            "mock".to_string(),
+            "1h".to_string(),
+            None,
+        ));
+        let _active_cache_name: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let provider = Arc::new(MockProvider);
+        // We manually spawn the mock and run the same loop as run_review_tool
+        let mut cmd = Command::new(&bin_path);
+        cmd.stdin(Stdio::piped());
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+
+        let mut child = cmd.spawn()?;
+        let mut stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+
+        let interaction = async {
+            // 1. Send input
+            stdin.write_all(b"{}\n").await?;
+            stdin.flush().await?;
+
+            let mut reader = BufReader::new(stdout).lines();
+            let mut final_result = None;
+
+            while let Ok(Some(line)) = reader.next_line().await {
+                if let Ok(json_msg) = serde_json::from_str::<Value>(&line) {
+                    if json_msg["type"] == "ai_request" {
+                        // Concurrency check: We are here, the child already sent 1000 log lines.
+                        // If the parent didn't drain them, the child would be blocked on write
+                        // and we would never receive this ai_request.
+
+                        let resp = provider
+                            .generate_content(AiRequest {
+                                system: None,
+                                messages: vec![],
+                                tools: None,
+                                temperature: None,
+                                preloaded_context: None,
+                                response_format: None,
+                            })
+                            .await?;
+
+                        let reply = json!({ "type": "ai_response", "payload": resp });
+                        let mut reply_str = serde_json::to_string(&reply)?;
+                        reply_str.push('\n');
+                        stdin.write_all(reply_str.as_bytes()).await?;
+                        stdin.flush().await?;
+                    } else if json_msg.get("patchset_id").is_some() {
+                        final_result = Some(json_msg);
+                        break;
+                    }
+                } else {
+                    // This is where logs are drained
+                    // println!("Log: {}", line);
+                }
+            }
+            Ok::<Option<Value>, anyhow::Error>(final_result)
+        };
+
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), interaction).await??;
+
+        assert!(result.is_some());
+        assert_eq!(result.unwrap()["patchset_id"], 1);
+
+        child.wait().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_reactive_cache_refresh() -> Result<()> {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        let call_count = Arc::new(AtomicU32::new(0));
+        let refresh_count = Arc::new(AtomicU32::new(0));
+
+        struct ReactiveMockProvider {
+            call_count: Arc<AtomicU32>,
+            refresh_count: Arc<AtomicU32>,
+        }
+        #[async_trait]
+        impl AiProvider for ReactiveMockProvider {
+            async fn generate_content(&self, request: AiRequest) -> Result<AiResponse> {
+                let count = self.call_count.fetch_add(1, Ordering::SeqCst);
+                if count == 0 {
+                    // First call fails with 403
+                    assert_eq!(request.preloaded_context.as_deref(), Some("stale-cache"));
+                    anyhow::bail!("403 Permission Denied: CachedContent not found");
+                } else {
+                    // Second call succeeds
+                    assert_eq!(request.preloaded_context.as_deref(), Some("fresh-cache"));
+                    Ok(AiResponse {
+                        content: Some("Success after refresh".to_string()),
+                        tool_calls: None,
+                        usage: None,
+                    })
+                }
+            }
+            async fn create_context_cache(
+                &self,
+                _request: AiRequest,
+                _ttl: String,
+                _display_name: Option<String>,
+            ) -> Result<String> {
+                self.refresh_count.fetch_add(1, Ordering::SeqCst);
+                Ok("fresh-cache".to_string())
+            }
+            fn estimate_tokens(&self, _request: &AiRequest) -> usize {
+                0
+            }
+            fn get_capabilities(&self) -> ProviderCapabilities {
+                ProviderCapabilities {
+                    model_name: "mock".to_string(),
+                    context_window_size: 1000,
+                }
+            }
+        }
+
+        let temp_dir = tempdir()?;
+        let bin_path = temp_dir.path().join("mock_review_cache");
+
+        let mock_script = r#"#!/bin/bash
+read -r input
+# Child sends request with stale cache
+echo '{"type": "ai_request", "payload": {"messages": [], "preloaded_context": "stale-cache"}}'
+read -r response
+# Child receives response and prints it
+echo "$response"
+echo '{"patchset_id": 1, "patches": []}'
+"#;
+        std::fs::write(&bin_path, mock_script)?;
+        std::fs::set_permissions(&bin_path, Permissions::from_mode(0o755))?;
+
+        let mut settings = Settings::new()?;
+        settings.database.url = ":memory:".to_string();
+        let _db = Arc::new(Database::new(&settings.database).await?);
+        let _quota_manager = Arc::new(QuotaManager::new());
+        let provider = Arc::new(ReactiveMockProvider {
+            call_count: call_count.clone(),
+            refresh_count: refresh_count.clone(),
+        });
+        let cache_manager = Arc::new(CacheManager::new(
+            PathBuf::from("."),
+            provider.clone(),
+            "mock".to_string(),
+            "1h".to_string(),
+            None,
+        ));
+        let active_cache_name = Arc::new(Mutex::new(Some("stale-cache".to_string())));
+
+        let mut cmd = Command::new(&bin_path);
+        cmd.stdin(Stdio::piped()).stdout(Stdio::piped());
+        let mut child = cmd.spawn()?;
+        let mut stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+
+        // This block effectively runs the interaction loop from run_review_tool
+        let mut reader = BufReader::new(stdout).lines();
+        stdin.write_all(b"{}\n").await?;
+        stdin.flush().await?;
+
+        while let Ok(Some(line)) = reader.next_line().await {
+            if let Ok(json_msg) = serde_json::from_str::<Value>(&line) {
+                if json_msg["type"] == "ai_request" {
+                    let mut req: AiRequest = serde_json::from_value(json_msg["payload"].clone())?;
+                    let mut cache_retry_done = false;
+                    let resp = loop {
+                        match provider.generate_content(req.clone()).await {
+                            Ok(r) => break Ok(r),
+                            Err(e) => {
+                                if !cache_retry_done && e.to_string().contains("403") {
+                                    cache_retry_done = true;
+                                    let mut guard = active_cache_name.lock().await;
+                                    *guard = None;
+                                    let new_name =
+                                        cache_manager.ensure_cache(Some("stale-cache")).await?;
+                                    *guard = Some(new_name.clone());
+                                    req.preloaded_context = Some(new_name);
+                                    continue;
+                                }
+                                break Err(e);
+                            }
+                        }
+                    };
+                    let reply = json!({ "type": "ai_response", "payload": resp? });
+                    stdin
+                        .write_all(serde_json::to_string(&reply)?.as_bytes())
+                        .await?;
+                    stdin.write_all(b"\n").await?;
+                    stdin.flush().await?;
+                } else if json_msg.get("patchset_id").is_some() {
+                    break;
+                }
+            }
+        }
+
+        assert_eq!(call_count.load(Ordering::SeqCst), 2);
+        assert_eq!(refresh_count.load(Ordering::SeqCst), 1);
+        child.wait().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cross_task_cache_refresh_coordination() -> Result<()> {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        let refresh_count = Arc::new(AtomicU32::new(0));
+
+        struct MultiMockProvider {
+            refresh_count: Arc<AtomicU32>,
+        }
+        #[async_trait]
+        impl AiProvider for MultiMockProvider {
+            async fn generate_content(&self, request: AiRequest) -> Result<AiResponse> {
+                if request.preloaded_context.as_deref() == Some("stale") {
+                    anyhow::bail!("403 Permission Denied: CachedContent not found");
+                }
+                Ok(AiResponse {
+                    content: Some("Ok".to_string()),
+                    tool_calls: None,
+                    usage: None,
+                })
+            }
+            async fn create_context_cache(
+                &self,
+                _request: AiRequest,
+                _ttl: String,
+                _display_name: Option<String>,
+            ) -> Result<String> {
+                // Simulate slow refresh to increase race probability
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                self.refresh_count.fetch_add(1, Ordering::SeqCst);
+                Ok("fresh".to_string())
+            }
+            fn estimate_tokens(&self, _request: &AiRequest) -> usize {
+                0
+            }
+            fn get_capabilities(&self) -> ProviderCapabilities {
+                ProviderCapabilities {
+                    model_name: "m".to_string(),
+                    context_window_size: 10,
+                }
+            }
+        }
+
+        let provider = Arc::new(MultiMockProvider {
+            refresh_count: refresh_count.clone(),
+        });
+        let cache_manager = Arc::new(CacheManager::new(
+            PathBuf::from("."),
+            provider.clone(),
+            "m".to_string(),
+            "1h".to_string(),
+            None,
+        ));
+        let active_cache_name = Arc::new(Mutex::new(Some("stale".to_string())));
+
+        // Simulate two concurrent tasks both hitting 403
+        let mut handles = vec![];
+        for _ in 0..2 {
+            let p = provider.clone();
+            let cm = cache_manager.clone();
+            let acn = active_cache_name.clone();
+            handles.push(tokio::spawn(async move {
+                let mut req = AiRequest {
+                    system: None,
+                    messages: vec![],
+                    tools: None,
+                    temperature: None,
+                    preloaded_context: Some("stale".to_string()),
+                    response_format: None,
+                };
+
+                let mut retry = false;
+                loop {
+                    match p.generate_content(req.clone()).await {
+                        Ok(_) => break Ok::<(), anyhow::Error>(()),
+                        Err(e) => {
+                            if !retry && e.to_string().contains("403") {
+                                retry = true;
+                                let mut guard = acn.lock().await;
+                                let current = req.preloaded_context.clone();
+                                if let Some(active) = guard.as_ref() {
+                                    if current.as_ref() != Some(active) {
+                                        // Already refreshed by another task!
+                                        req.preloaded_context = Some(active.clone());
+                                        drop(guard);
+                                        continue;
+                                    }
+                                }
+                                *guard = None;
+                                let new = cm.ensure_cache(current.as_deref()).await?;
+                                *guard = Some(new.clone());
+                                req.preloaded_context = Some(new);
+                                drop(guard);
+                                continue;
+                            }
+                            break Err(e);
+                        }
+                    }
+                }
+            }));
+        }
+
+        for h in handles {
+            h.await??;
+        }
+
+        // Critical assertion: Only ONE refresh call happened despite two failures
+        assert_eq!(refresh_count.load(Ordering::SeqCst), 1);
+        Ok(())
     }
 }

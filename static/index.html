@@ -490,12 +490,21 @@
             color: var(--text);
         }
 
+        .role-system .log-gutter {
+            color: #d67f05;
+        }
+
         .role-tool .log-gutter {
             color: #6a737d;
         }
 
         .role-tool .log-content {
             color: #6a737d;
+        }
+
+        .is-thought {
+            opacity: 0.6;
+            filter: grayscale(1);
         }
 
         .fn-name {
@@ -1398,11 +1407,11 @@
                                 hasSuccessful = true;
                                 try {
                                     if (r.output) {
-                                        const out = JSON.parse(r.output);
-                                        if (out.findings && Array.isArray(out.findings)) {
+                                        const out = typeof r.output === 'string' ? JSON.parse(r.output) : r.output;
+                                        if (out && out.findings && Array.isArray(out.findings)) {
                                             let current = { low: 0, medium: 0, high: 0, critical: 0 };
                                             out.findings.forEach(f => {
-                                                const s = (f.severity || '').toLowerCase();
+                                                const s = String(f.severity || '').toLowerCase();
                                                 if (s === 'critical') current.critical++;
                                                 else if (s === 'high') current.high++;
                                                 else if (s === 'medium') current.medium++;
@@ -1625,10 +1634,15 @@
             let parsedFindings = false;
             try {
                 if (r.output) {
-                    const outputJson = JSON.parse(r.output);
-                    
+                    let outputJson = null;
+                    if (typeof r.output === 'string') {
+                        outputJson = JSON.parse(r.output);
+                    } else if (typeof r.output === 'object') {
+                        outputJson = r.output;
+                    }
+
                     // Findings
-                    if (outputJson.findings && Array.isArray(outputJson.findings)) {
+                    if (outputJson && outputJson.findings && Array.isArray(outputJson.findings)) {
                         let counts = { low: 0, medium: 0, high: 0, critical: 0 };
                         outputJson.findings.forEach(f => {
                             const s = (f.severity || '').toLowerCase();
@@ -1848,17 +1862,40 @@ ${escapeHtml(data.body || '(no body)', true, false)}</pre>
                 logsHtml = '<div style="padding:20px; text-align:center; color:#888;">No logs recorded.</div>';
             } else {
                 let jsonCounter = 0;
-                logsHtml = logs.map(entry => {
+                logsHtml = logs.map((entry, idx) => {
                     const role = (entry.role || 'unknown').toLowerCase();
                     const parts = entry.parts || [];
                     let rowClass = 'log-entry';
                     if (role === 'user') rowClass += ' role-user';
-                    else if (role === 'model') rowClass += ' role-model';
-                    else rowClass += ' role-tool';
+                    else if (role === 'model' || role === 'assistant') rowClass += ' role-model';
+                    else if (role === 'tool' || role === 'function') rowClass += ' role-tool';
+                    else rowClass += ' role-system';
 
-                    let label = role === 'model' ? 'LLM' : role === 'tool' || role === 'function' ? 'TOOL' : role.toUpperCase();
+                    // Thoughts are all messages except the last one
+                    if (idx < logs.length - 1) {
+                        rowClass += ' is-thought';
+                    }
+
+                    let label = (role === 'model' || role === 'assistant') ? 'LLM' : (role === 'tool' || role === 'function') ? 'TOOL' : role.toUpperCase();
 
                     let content = '';
+
+                    // Unified format: direct content and tool_calls
+                    if (entry.content && typeof entry.content === 'string') {
+                        if (role === 'tool') {
+                            content += formatJsonExpandable(entry.content, jsonCounter++);
+                        } else {
+                            content += `<div>${escapeHtml(entry.content)}</div>`;
+                        }
+                    }
+                    if (entry.tool_calls && Array.isArray(entry.tool_calls)) {
+                        entry.tool_calls.forEach(call => {
+                            const callId = jsonCounter++;
+                            content += formatFuncCallExpandable(call.function_name, call.arguments, callId);
+                        });
+                    }
+
+                    // Gemini format: parts array
                     parts.forEach(part => {
                         if (part.text) {
                             if (part.thought) {

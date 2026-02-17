@@ -12,8 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::ai::gemini::{FunctionDeclaration, Tool};
 use crate::ai::truncator::Truncator;
+use crate::ai::{
+    AiTool,
+    gemini::{FunctionDeclaration, Tool},
+};
 use anyhow::{Result, anyhow};
 use grep::printer::StandardBuilder;
 use grep::regex::RegexMatcher;
@@ -38,9 +41,26 @@ impl ToolBox {
         }
     }
 
+    /// Returns Gemini-specific tool declarations.
+    /// TODO: Deprecate after migration.
     pub fn get_declarations(&self) -> Tool {
+        let decls = self.get_declarations_generic();
+        Tool {
+            function_declarations: decls
+                .into_iter()
+                .map(|t| FunctionDeclaration {
+                    name: t.name,
+                    description: t.description,
+                    parameters: t.parameters,
+                })
+                .collect(),
+        }
+    }
+
+    /// Returns generic tool declarations.
+    pub fn get_declarations_generic(&self) -> Vec<AiTool> {
         let mut decls = vec![
-            FunctionDeclaration {
+            AiTool {
                 name: "read_files".to_string(),
                 description: "Read the content of one or more files. In 'smart' mode, it collapses irrelevant code around the focus lines."
                     .to_string(),
@@ -65,7 +85,7 @@ impl ToolBox {
                     "required": ["files"]
                 }),
             },
-            FunctionDeclaration {
+            AiTool {
                 name: "git_blame".to_string(),
                 description: "Show what revision and author last modified each line of a file."
                     .to_string(),
@@ -79,7 +99,7 @@ impl ToolBox {
                     "required": ["path"]
                 }),
             },
-            FunctionDeclaration {
+            AiTool {
                 name: "git_diff".to_string(),
                 description: "Show changes between commits, commit and working tree, etc."
                     .to_string(),
@@ -91,7 +111,7 @@ impl ToolBox {
                     "required": ["args"]
                 }),
             },
-            FunctionDeclaration {
+            AiTool {
                 name: "git_show".to_string(),
                 description: "Show various types of objects (blobs, trees, tags and commits). Supports line filtering for blobs and diff suppression for commits."
                     .to_string(),
@@ -106,7 +126,7 @@ impl ToolBox {
                         "required": ["object"]
                 }),
             },
-            FunctionDeclaration {
+            AiTool {
                 name: "list_dir".to_string(),
                 description: "List files in a directory.".to_string(),
                 parameters: json!({
@@ -117,7 +137,7 @@ impl ToolBox {
                     "required": ["path"]
                 }),
             },
-            FunctionDeclaration {
+            AiTool {
                 name: "search_file_content".to_string(),
                 description: "Search for a pattern in files using grep. Returns matching lines with context.".to_string(),
                 parameters: json!({
@@ -130,7 +150,7 @@ impl ToolBox {
                     "required": ["pattern"]
                 }),
             },
-            FunctionDeclaration {
+            AiTool {
                 name: "find_files".to_string(),
                 description: "Find files matching a glob pattern (e.g., '*.rs', 'src/**/mod.rs').".to_string(),
                 parameters: json!({
@@ -142,7 +162,7 @@ impl ToolBox {
                     "required": ["pattern"]
                 }),
             },
-            FunctionDeclaration {
+            AiTool {
                 name: "TodoWrite".to_string(),
                 description: "Add a new TODO item to the TODO.md file.".to_string(),
                 parameters: json!({
@@ -156,7 +176,7 @@ impl ToolBox {
         ];
 
         if self.prompts_path.is_some() {
-            decls.push(FunctionDeclaration {
+            decls.push(AiTool {
                 name: "read_prompt".to_string(),
                 description: "Read a specific prompt file from the prompt registry (e.g., 'mm.md', 'locking.md').".to_string(),
                 parameters: json!({
@@ -169,9 +189,7 @@ impl ToolBox {
             });
         }
 
-        Tool {
-            function_declarations: decls,
-        }
+        decls
     }
 
     pub async fn call(&self, name: &str, args: Value) -> Result<Value> {

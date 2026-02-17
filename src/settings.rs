@@ -41,6 +41,24 @@ fn default_max_input_tokens() -> usize {
 
 #[derive(Debug, Deserialize, Clone)]
 #[allow(unused)]
+pub struct ClaudeSettings {
+    #[serde(default = "default_prompt_caching")]
+    pub prompt_caching: bool,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[allow(unused)]
+pub struct GeminiSettings {
+    #[serde(default)]
+    pub explicit_prompt_caching: bool,
+}
+
+fn default_prompt_caching() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[allow(unused)]
 pub struct AiSettings {
     pub provider: String,
     pub model: String,
@@ -50,10 +68,11 @@ pub struct AiSettings {
     pub max_interactions: usize,
     #[serde(default = "default_temperature")]
     pub temperature: f32,
-    #[serde(default)]
-    pub explicit_prompts_caching: bool,
     #[serde(skip, default)]
     pub no_ai: bool,
+    // Provider-specific settings
+    pub claude: Option<ClaudeSettings>,
+    pub gemini: Option<GeminiSettings>,
 }
 
 fn default_temperature() -> f32 {
