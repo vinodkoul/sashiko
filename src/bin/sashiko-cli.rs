@@ -413,7 +413,7 @@ async fn handle_show(
         // Fetch review if available
         let mut review_data = None;
         if status == "Reviewed" || status == "Failed" || status == "Failed To Apply" {
-             let review_url = format!("{}/api/review?id={}", base_url, id);
+             let review_url = format!("{}/api/review?patchset_id={}", base_url, id);
              let review_resp = client.get(&review_url).send().await?;
              
              if review_resp.status().is_success() {
@@ -489,10 +489,12 @@ async fn handle_show(
                     }
                     
                     if let Some(logs) = review.get("logs").and_then(|l| l.as_str()) {
-                         // Only show logs if status is Failed To Apply or similar error
-                         if status == "Failed To Apply" {
-                             println!("\nLogs:\n{}", logs);
-                         }
+                         println!("\nLogs:\n{}", logs);
+                    }
+                } else if let Some(logs) = details.get("baseline_logs").and_then(|l| l.as_str()) {
+                    // Fallback to baseline logs if review is missing (e.g. Failed To Apply during baseline prep)
+                    if status == "Failed To Apply" {
+                        println!("\nBaseline Logs:\n{}", logs);
                     }
                 }
             }

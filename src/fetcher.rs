@@ -237,8 +237,22 @@ impl FetchAgent {
                     info!("Successfully submitted remote range {}", range);
                 } else {
                     // Single commit
+                    let full_sha = match self.resolve_sha(&commit_or_range).await {
+                        Ok(sha) => sha,
+                        Err(e) => {
+                            let _ = self
+                                .main_tx
+                                .send(Event::IngestionFailed {
+                                    article_id: commit_or_range.clone(),
+                                    error: format!("Failed to resolve SHA: {}", e),
+                                })
+                                .await;
+                            continue;
+                        }
+                    };
+
                     match self
-                        .extract_patch(&commit_or_range, &commit_or_range, 1, 1)
+                        .extract_patch(&full_sha, &commit_or_range, 1, 1)
                         .await
                     {
                         Ok(mut event) => {
@@ -246,7 +260,7 @@ impl FetchAgent {
                                 ref mut message_id, ..
                             } = event
                             {
-                                *message_id = commit_or_range.clone();
+                                *message_id = full_sha.clone();
                             }
                             if let Err(e) = self.main_tx.send(event).await {
                                 error!("Failed to send PatchSubmitted event: {}", e);
@@ -357,6 +371,23 @@ impl FetchAgent {
             ));
         }
         Ok(())
+    }
+
+    async fn resolve_sha(&self, commit: &str) -> Result<String> {
+        let output = Command::new("git")
+            .current_dir(&self.repo_path)
+            .args(["rev-parse", "--verify", commit])
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            return Err(anyhow!(
+                "Failed to resolve SHA for {}: {}",
+                commit,
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     }
 
     async fn extract_patch(

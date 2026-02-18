@@ -518,7 +518,7 @@ impl Reviewer {
             let mut application_failed = false;
             let mut apply_logs = String::new();
 
-            for (patch_id, index, diff, subject, author, date_ts, _msg_id) in diffs {
+            for (patch_id, index, diff, subject, author, date_ts, msg_id) in diffs {
                 let date_str = std::process::Command::new("date")
                     .arg("-R")
                     .arg("-d")
@@ -534,34 +534,49 @@ impl Reviewer {
                     })
                     .unwrap_or_default();
 
-                let mbox = format!(
-                    "From: {}\nDate: {}\nSubject: {}\n\n{}\n",
-                    author, date_str, subject, diff
-                );
-
-                // Try git am
                 let mut applied = false;
-                if (worktree.apply_patch(&mbox).await).is_ok() {
-                    applied = true;
-                } else {
-                    // Fallback raw diff
-                    if let Ok(o) = worktree.apply_raw_diff(diff).await {
-                        if o.status.success() {
-                            applied = true;
-                            // Commit raw diff
-                            let _ = Command::new("git")
-                                .current_dir(&worktree.path)
-                                .args(["add", "."])
-                                .output()
-                                .await;
-                            let commit_msg = format!("{}\n\n(Applied via git apply)", subject);
-                            let _ = Command::new("git")
-                                .current_dir(&worktree.path)
-                                .env("GIT_AUTHOR_NAME", author)
-                                .env("GIT_AUTHOR_EMAIL", "sashiko@localhost")
-                                .args(["commit", "-m", &commit_msg])
-                                .output()
-                                .await;
+
+                // Optimization: If message_id is a valid SHA, just checkout it
+                if msg_id.len() == 40 && msg_id.chars().all(|c| c.is_ascii_hexdigit()) {
+                    match worktree.reset_hard(msg_id).await {
+                        Ok(_) => applied = true,
+                        Err(e) => {
+                            let msg = format!("Failed to reset hard to {}: {}\n", msg_id, e);
+                            info!("{}", msg);
+                            apply_logs.push_str(&msg);
+                        }
+                    }
+                }
+
+                if !applied {
+                    let mbox = format!(
+                        "From: {}\nDate: {}\nSubject: {}\n\n{}\n",
+                        author, date_str, subject, diff
+                    );
+
+                    // Try git am
+                    if (worktree.apply_patch(&mbox).await).is_ok() {
+                        applied = true;
+                    } else {
+                        // Fallback raw diff
+                        if let Ok(o) = worktree.apply_raw_diff(diff).await {
+                            if o.status.success() {
+                                applied = true;
+                                // Commit raw diff
+                                let _ = Command::new("git")
+                                    .current_dir(&worktree.path)
+                                    .args(["add", "."])
+                                    .output()
+                                    .await;
+                                let commit_msg = format!("{}\n\n(Applied via git apply)", subject);
+                                let _ = Command::new("git")
+                                    .current_dir(&worktree.path)
+                                    .env("GIT_AUTHOR_NAME", author)
+                                    .env("GIT_AUTHOR_EMAIL", "sashiko@localhost")
+                                    .args(["commit", "-m", &commit_msg])
+                                    .output()
+                                    .await;
+                            }
                         }
                     }
                 }

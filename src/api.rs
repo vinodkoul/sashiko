@@ -67,6 +67,12 @@ pub struct PatchQuery {
 }
 
 #[derive(Deserialize)]
+pub struct ReviewQuery {
+    pub id: Option<i64>,
+    pub patchset_id: Option<i64>,
+}
+
+#[derive(Deserialize)]
 pub struct RerunPatchQuery {
     pub patchset_id: i64,
     pub patch_id: i64,
@@ -354,23 +360,28 @@ async fn get_patchset(
 
 async fn get_review(
     State(state): State<Arc<AppState>>,
-    Query(query): Query<PatchQuery>,
+    Query(query): Query<ReviewQuery>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    if let Ok(id_val) = query.id.parse::<i64>() {
-        info!("Fetching details for review id: {}", id_val);
-        match state.db.get_review_details(id_val).await {
-            Ok(Some(details)) => Ok(Json(details)),
-            Ok(None) => {
-                info!("Review not found: {}", id_val);
-                Err(StatusCode::NOT_FOUND)
-            }
-            Err(e) => {
-                info!("Database error: {}", e);
-                Err(StatusCode::INTERNAL_SERVER_ERROR)
-            }
-        }
+    let result = if let Some(ps_id) = query.patchset_id {
+        info!("Fetching latest review for patchset id: {}", ps_id);
+        state.db.get_latest_review_for_patchset(ps_id).await
+    } else if let Some(id) = query.id {
+        info!("Fetching details for review id: {}", id);
+        state.db.get_review_details(id).await
     } else {
-        Err(StatusCode::BAD_REQUEST)
+        return Err(StatusCode::BAD_REQUEST);
+    };
+
+    match result {
+        Ok(Some(details)) => Ok(Json(details)),
+        Ok(None) => {
+            info!("Review not found");
+            Err(StatusCode::NOT_FOUND)
+        }
+        Err(e) => {
+            info!("Database error: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
     }
 }
 

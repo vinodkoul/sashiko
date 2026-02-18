@@ -71,6 +71,7 @@ pub struct MessageRow {
     pub thread: Option<Vec<serde_json::Value>>,
     pub git_blob_hash: Option<String>,
     pub mailing_list: Option<String>,
+    pub diff: Option<String>,
 }
 
 pub struct AiInteractionParams<'a> {
@@ -144,7 +145,10 @@ impl Database {
 
     pub async fn get_message_details(&self, id: i64) -> Result<Option<MessageRow>> {
         let mut rows = self.conn.query(
-            "SELECT id, message_id, thread_id, in_reply_to, author, subject, date, body, to_recipients, cc_recipients, git_blob_hash, mailing_list FROM messages WHERE id = ?",
+            "SELECT m.id, m.message_id, m.thread_id, m.in_reply_to, m.author, m.subject, m.date, m.body, m.to_recipients, m.cc_recipients, m.git_blob_hash, m.mailing_list, p.diff 
+             FROM messages m 
+             LEFT JOIN patches p ON m.message_id = p.message_id
+             WHERE m.id = ?",
              libsql::params![id],
         ).await?;
 
@@ -170,6 +174,22 @@ impl Database {
                 }
             }
 
+            let body: Option<String> = row.get(7).ok();
+            let raw_diff: Option<String> = row.get(12).ok();
+            
+            // For email-based patches, the diff is often just the body.
+            // We don't want to show it twice in the UI.
+            // For git commits, body is the commit message and diff is the actual diff.
+            let diff = if let (Some(b), Some(d)) = (&body, &raw_diff) {
+                if b == d {
+                    None
+                } else {
+                    raw_diff
+                }
+            } else {
+                raw_diff
+            };
+
             Ok(Some(MessageRow {
                 id: row.get(0)?,
                 message_id: row.get(1)?,
@@ -178,11 +198,12 @@ impl Database {
                 author: row.get(4).ok(),
                 subject: row.get(5).ok(),
                 date: row.get(6).ok(),
-                body: row.get(7).ok(),
+                body,
                 to: row.get(8).ok(),
                 cc: row.get(9).ok(),
                 git_blob_hash: row.get(10).ok(),
                 mailing_list: row.get(11).ok(),
+                diff,
                 thread: Some(messages),
             }))
         } else {
@@ -2108,6 +2129,7 @@ impl Database {
                 cc: row.get(9).ok(),
                 git_blob_hash: row.get(10).ok(),
                 mailing_list: row.get(11).ok(),
+                diff: None,
                 thread: None,
             });
         }
@@ -2379,6 +2401,23 @@ impl Database {
                 "patch_id": r.get::<Option<i64>>(17).ok(),
                 "tokens_cached": r.get::<Option<u32>>(18).ok(),
             })))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub async fn get_latest_review_for_patchset(&self, patchset_id: i64) -> Result<Option<serde_json::Value>> {
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT id FROM reviews WHERE patchset_id = ? ORDER BY created_at DESC LIMIT 1",
+                libsql::params![patchset_id],
+            )
+            .await?;
+
+        if let Ok(Some(row)) = rows.next().await {
+            let id: i64 = row.get(0)?;
+            self.get_review_details(id).await
         } else {
             Ok(None)
         }

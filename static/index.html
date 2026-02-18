@@ -1482,7 +1482,10 @@
             }
 
             let baselineLogsHtml = '';
-            if (data.baseline_logs) {
+            // Only show baseline section if NOT a direct git submission (heuristic: message_id is SHA)
+            const isGitSubmission = data.message_id && /^[0-9a-f]{40}$/.test(data.message_id);
+            
+            if (data.baseline_logs && !isGitSubmission) {
                  const logId = 'baseline-logs-' + Math.random().toString(36).substr(2, 9);
                  let contentHtml = '';
                  let isJson = false;
@@ -1802,6 +1805,8 @@
                 
                 <pre class="body"><div style="font-weight: bold; color: var(--text);">${escapeHtml(data.subject || '(no subject)')}</div>
 ${escapeHtml(data.body || '(no body)', true, false)}</pre>
+                
+                ${data.diff ? `<div class="section"><h2>Diff</h2><pre class="body" style="background-color: var(--bg-secondary); border: 1px solid var(--border);">${escapeHtml(data.diff, true)}</pre></div>` : ''}
             `;
         }
 
