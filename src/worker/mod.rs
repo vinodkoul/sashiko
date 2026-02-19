@@ -616,8 +616,7 @@ mod tests {
 
     #[test]
     fn test_validate_inline_format_valid() {
-        let content =
-            "commit 1234567890abcdef\nAuthor: Jane Doe\n\nSummary of changes.\n\n> diff --git a/file b/file\n> index 123..456\n\nThis looks bad.";
+        let content = "commit 1234567890abcdef\nAuthor: Jane Doe\n\nSummary of changes.\n\n> diff --git a/file b/file\n> index 123..456\n\nThis looks bad.";
         assert!(validate_inline_format(content).is_ok());
     }
 
@@ -759,7 +758,7 @@ mod tests {
         };
         let patches = vec![p1.clone(), p2.clone()];
         let patches_to_review = vec![p1.clone()];
-        
+
         let mut patch_shas = std::collections::HashMap::new();
         patch_shas.insert(2, "sha2_resolved".to_string());
 

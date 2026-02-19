@@ -98,7 +98,10 @@ impl FetchAgent {
             }
 
             if missing_commits.is_empty() {
-                info!("All commits present locally, skipping fetch for {}", url_display);
+                info!(
+                    "All commits present locally, skipping fetch for {}",
+                    url_display
+                );
             } else if let Some(url) = url_opt {
                 // Remote fetch logic
                 let remote_name = self.get_remote_name(&url);
@@ -108,7 +111,7 @@ impl FetchAgent {
                     let url_path = PathBuf::from(&url);
                     if let (Ok(canon_url), Ok(canon_repo)) = (
                         std::fs::canonicalize(&url_path),
-                        std::fs::canonicalize(&self.repo_path)
+                        std::fs::canonicalize(&self.repo_path),
                     ) {
                         canon_url == canon_repo
                     } else {
@@ -117,7 +120,10 @@ impl FetchAgent {
                 };
 
                 if is_local {
-                    warn!("Repository is local but commits are missing: {:?}. Cannot fetch.", missing_commits);
+                    warn!(
+                        "Repository is local but commits are missing: {:?}. Cannot fetch.",
+                        missing_commits
+                    );
                     // Do not continue here; let it fall through to Step 3 where it will fail individually
                 } else {
                     if let Err(e) = self.ensure_remote(&remote_name, &url).await {
@@ -158,7 +164,10 @@ impl FetchAgent {
                 }
             } else {
                 // Local repo, but commits are missing
-                warn!("Local repository missing commits: {:?}. Cannot fetch.", missing_commits);
+                warn!(
+                    "Local repository missing commits: {:?}. Cannot fetch.",
+                    missing_commits
+                );
             }
 
             // 3. Process each commit or range
@@ -204,8 +213,6 @@ impl FetchAgent {
                             .await;
                         continue;
                     }
-
-
 
                     // 2. Get list of SHAs
                     let list_output = Command::new("git")
@@ -273,10 +280,7 @@ impl FetchAgent {
                         }
                     };
 
-                    match self
-                        .extract_patch(&full_sha, &commit_or_range, 1, 1)
-                        .await
-                    {
+                    match self.extract_patch(&full_sha, &commit_or_range, 1, 1).await {
                         Ok(mut event) => {
                             if let Event::PatchSubmitted {
                                 ref mut message_id, ..

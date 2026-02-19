@@ -8,7 +8,7 @@ use std::io::BufReader;
 #[command(version, about, long_about = None)]
 struct Args {
     /// Path to the benchmark file
-    #[arg(short, long, default_value = "benchmark.json")]
+    #[arg(short, long)]
     file: String,
 }
 

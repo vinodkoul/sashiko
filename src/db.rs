@@ -176,16 +176,12 @@ impl Database {
 
             let body: Option<String> = row.get(7).ok();
             let raw_diff: Option<String> = row.get(12).ok();
-            
+
             // For email-based patches, the diff is often just the body.
             // We don't want to show it twice in the UI.
             // For git commits, body is the commit message and diff is the actual diff.
             let diff = if let (Some(b), Some(d)) = (&body, &raw_diff) {
-                if b == d {
-                    None
-                } else {
-                    raw_diff
-                }
+                if b == d { None } else { raw_diff }
             } else {
                 raw_diff
             };
@@ -301,7 +297,10 @@ impl Database {
     }
 
     pub async fn new(settings: &DatabaseSettings) -> Result<Self> {
-        info!("Connecting to database at {}", crate::utils::redact_secret(&settings.url));
+        info!(
+            "Connecting to database at {}",
+            crate::utils::redact_secret(&settings.url)
+        );
 
         let db = if settings.url.starts_with("libsql://") || settings.url.starts_with("https://") {
             Builder::new_remote(settings.url.clone(), settings.token.clone())
@@ -2406,7 +2405,10 @@ impl Database {
         }
     }
 
-    pub async fn get_latest_review_for_patchset(&self, patchset_id: i64) -> Result<Option<serde_json::Value>> {
+    pub async fn get_latest_review_for_patchset(
+        &self,
+        patchset_id: i64,
+    ) -> Result<Option<serde_json::Value>> {
         let mut rows = self
             .conn
             .query(

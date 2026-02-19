@@ -24,13 +24,10 @@ static URL_CRED_REGEX: OnceLock<Regex> = OnceLock::new();
 /// - API keys in query parameters (e.g., `key=AIza...`)
 /// - Credentials in URLs (e.g., `https://user:pass@host`)
 pub fn redact_secret(s: &str) -> String {
-    let key_re = KEY_REGEX.get_or_init(|| {
-        Regex::new(r"(?i)(key|token|secret)=([a-zA-Z0-9_\-]+)").unwrap()
-    });
-    
-    let url_cred_re = URL_CRED_REGEX.get_or_init(|| {
-        Regex::new(r"://([^/:]+):([^/@]+)@").unwrap()
-    });
+    let key_re =
+        KEY_REGEX.get_or_init(|| Regex::new(r"(?i)(key|token|secret)=([a-zA-Z0-9_\-]+)").unwrap());
+
+    let url_cred_re = URL_CRED_REGEX.get_or_init(|| Regex::new(r"://([^/:]+):([^/@]+)@").unwrap());
 
     let redacted_params = key_re.replace_all(s, "$1=[REDACTED]");
     let redacted_url = url_cred_re.replace_all(&redacted_params, "://[REDACTED]:[REDACTED]@");
@@ -46,21 +43,30 @@ mod tests {
     fn test_redact_gemini_key() {
         let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=AIzaSyD-12345";
         let redacted = redact_secret(url);
-        assert_eq!(redacted, "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=[REDACTED]");
+        assert_eq!(
+            redacted,
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=[REDACTED]"
+        );
     }
 
     #[test]
     fn test_redact_git_credentials() {
         let url = "https://user:password123@github.com/torvalds/linux.git";
         let redacted = redact_secret(url);
-        assert_eq!(redacted, "https://[REDACTED]:[REDACTED]@github.com/torvalds/linux.git");
+        assert_eq!(
+            redacted,
+            "https://[REDACTED]:[REDACTED]@github.com/torvalds/linux.git"
+        );
     }
 
     #[test]
     fn test_redact_mixed() {
         let s = "Error connecting to https://user:pass@host/api?key=secret_value";
         let redacted = redact_secret(s);
-        assert_eq!(redacted, "Error connecting to https://[REDACTED]:[REDACTED]@host/api?key=[REDACTED]");
+        assert_eq!(
+            redacted,
+            "Error connecting to https://[REDACTED]:[REDACTED]@host/api?key=[REDACTED]"
+        );
     }
 
     #[test]

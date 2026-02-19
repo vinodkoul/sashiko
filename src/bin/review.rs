@@ -18,8 +18,8 @@ use sashiko::{
     git_ops::GitWorktree,
     settings::Settings,
     worker::{
-        calculate_series_range, prompts::PromptRegistry, tools::ToolBox, PatchInput, Worker,
-        WorkerConfig,
+        PatchInput, Worker, WorkerConfig, calculate_series_range, prompts::PromptRegistry,
+        tools::ToolBox,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -848,20 +848,41 @@ mod tests {
         let temp_dir = tempfile::tempdir()?;
         let repo_path = temp_dir.path().to_path_buf();
 
-        Command::new("git").current_dir(&repo_path).arg("init").output()?;
-        Command::new("git").current_dir(&repo_path).args(["config", "user.email", "test@example.com"]).output()?;
-        Command::new("git").current_dir(&repo_path).args(["config", "user.name", "Test User"]).output()?;
+        Command::new("git")
+            .current_dir(&repo_path)
+            .arg("init")
+            .output()?;
+        Command::new("git")
+            .current_dir(&repo_path)
+            .args(["config", "user.email", "test@example.com"])
+            .output()?;
+        Command::new("git")
+            .current_dir(&repo_path)
+            .args(["config", "user.name", "Test User"])
+            .output()?;
 
         let file_path = repo_path.join("file.txt");
         let mut file = File::create(&file_path)?;
         writeln!(file, "Initial")?;
-        Command::new("git").current_dir(&repo_path).args(["add", "."]).output()?;
-        Command::new("git").current_dir(&repo_path).args(["commit", "-m", "Initial"]).output()?;
+        Command::new("git")
+            .current_dir(&repo_path)
+            .args(["add", "."])
+            .output()?;
+        Command::new("git")
+            .current_dir(&repo_path)
+            .args(["commit", "-m", "Initial"])
+            .output()?;
         let initial_sha = sashiko::git_ops::get_commit_hash(&repo_path, "HEAD").await?;
 
         writeln!(file, "Change")?;
-        Command::new("git").current_dir(&repo_path).args(["add", "."]).output()?;
-        Command::new("git").current_dir(&repo_path).args(["commit", "-m", "Feature"]).output()?;
+        Command::new("git")
+            .current_dir(&repo_path)
+            .args(["add", "."])
+            .output()?;
+        Command::new("git")
+            .current_dir(&repo_path)
+            .args(["commit", "-m", "Feature"])
+            .output()?;
         let feature_sha = sashiko::git_ops::get_commit_hash(&repo_path, "HEAD").await?;
 
         let worktree = GitWorktree::new(&repo_path, &initial_sha, None).await?;

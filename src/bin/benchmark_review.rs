@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use clap::Parser;
 use futures::stream::StreamExt;
 use regex::Regex;
 use sashiko::ai::gemini::{Content, GeminiClient, GenAiClient, GenerateContentRequest, Part};
@@ -12,6 +13,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, fmt};
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Path to the benchmark file
+    #[arg(short, long)]
+    file: String,
+}
 
 #[derive(Debug, Deserialize, Clone)]
 struct BenchmarkEntry {
@@ -37,6 +46,8 @@ struct BenchmarkResult {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args = Args::parse();
+
     // Initialize tracing
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     fmt().with_env_filter(env_filter).init();
@@ -50,11 +61,12 @@ async fn main() -> Result<()> {
     );
 
     // Load benchmark data
-    let benchmark_path = Path::new("benchmark.json");
-    let file = File::open(benchmark_path).context("Failed to open benchmark.json")?;
+    let benchmark_path = Path::new(&args.file);
+    let file =
+        File::open(benchmark_path).with_context(|| format!("Failed to open {}", args.file))?;
     let reader = BufReader::new(file);
-    let benchmark_entries: Vec<BenchmarkEntry> =
-        serde_json::from_reader(reader).context("Failed to parse benchmark.json")?;
+    let benchmark_entries: Vec<BenchmarkEntry> = serde_json::from_reader(reader)
+        .with_context(|| format!("Failed to parse {}", args.file))?;
 
     let total_entries = benchmark_entries.len();
     info!("Loaded {} benchmark entries.", total_entries);

@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use crate::ai::token_budget::TokenBudget;
-use crate::utils::redact_secret;
 use crate::ai::{
     AiProvider, AiRequest, AiResponse, AiRole, AiUsage, ProviderCapabilities, ToolCall,
 };
+use crate::utils::redact_secret;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use regex::Regex;
@@ -290,7 +290,10 @@ impl GeminiClient {
         let res = self.client.post(url).json(body).send().await;
 
         if let Err(e) = &res {
-            tracing::error!("Gemini request failed (transport): {}", redact_secret(&e.to_string()));
+            tracing::error!(
+                "Gemini request failed (transport): {}",
+                redact_secret(&e.to_string())
+            );
         }
         let res = res?;
 

@@ -19,7 +19,7 @@ use reqwest::Client;
 use sashiko::api::{PatchsetsResponse, SubmitRequest, SubmitResponse};
 use sashiko::settings::Settings;
 use serde_json::Value;
-use std::io::{Read, Write, IsTerminal};
+use std::io::{IsTerminal, Read, Write};
 use std::path::PathBuf;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
@@ -104,25 +104,21 @@ enum SubmitType {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    
-    // Load settings, falling back to defaults if file missing/invalid
-    let settings = Settings::new().unwrap_or_else(|_| {
-        Settings::new().expect("Failed to load default settings")
-    });
 
-    let base_url = cli.server.unwrap_or_else(|| {
-        format!(
-            "http://{}:{}",
-            settings.server.host, settings.server.port
-        )
-    });
+    // Load settings, falling back to defaults if file missing/invalid
+    let settings = Settings::new()
+        .unwrap_or_else(|_| Settings::new().expect("Failed to load default settings"));
+
+    let base_url = cli
+        .server
+        .unwrap_or_else(|| format!("http://{}:{}", settings.server.host, settings.server.port));
 
     let client = Client::new();
 
     if let Err(e) = run_command(cli.command, &client, &base_url, cli.format).await {
         print_colored(Color::Red, "Error: ");
         println!("{}", e);
-        
+
         // Provide helpful hints for common errors
         if let Some(req_err) = e.downcast_ref::<reqwest::Error>() {
             if req_err.is_connect() {
@@ -154,9 +150,7 @@ async fn run_command(
             r#type,
             repo,
             baseline,
-        } => {
-            handle_submit(client, base_url, input, r#type, repo, baseline, format).await
-        }
+        } => handle_submit(client, base_url, input, r#type, repo, baseline, format).await,
         Commands::Status => handle_status(client, base_url, format).await,
         Commands::List {
             filter,
@@ -220,10 +214,13 @@ async fn handle_submit(
         SubmitType::Mbox => {
             let content = if target == "-" {
                 let mut buffer = String::new();
-                std::io::stdin().read_to_string(&mut buffer).context("Failed to read from stdin")?;
+                std::io::stdin()
+                    .read_to_string(&mut buffer)
+                    .context("Failed to read from stdin")?;
                 buffer
             } else {
-                std::fs::read_to_string(&target).with_context(|| format!("Failed to read file {:?}", target))?
+                std::fs::read_to_string(&target)
+                    .with_context(|| format!("Failed to read file {:?}", target))?
             };
             SubmitRequest::Inject {
                 raw: content,
@@ -237,7 +234,7 @@ async fn handle_submit(
                 sha: target,
                 repo: repo_path,
             }
-        },
+        }
         SubmitType::Range => {
             let repo_path = repo.map(|p| p.to_string_lossy().to_string());
 
@@ -245,7 +242,7 @@ async fn handle_submit(
                 sha: target,
                 repo: repo_path,
             }
-        },
+        }
     };
 
     let resp = client.post(&url).json(&payload).send().await?;
@@ -274,12 +271,15 @@ async fn handle_status(client: &Client, base_url: &str, format: OutputFormat) ->
 
     if resp.status().is_success() {
         let stats: Value = resp.json().await?;
-        
+
         match format {
             OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&stats)?),
             OutputFormat::Text => {
                 print_colored(Color::Cyan, "Server Status:\n");
-                println!("  Version:   {}", stats["version"].as_str().unwrap_or("unknown"));
+                println!(
+                    "  Version:   {}",
+                    stats["version"].as_str().unwrap_or("unknown")
+                );
                 println!("  Messages:  {}", stats["messages"]);
                 println!("  Patchsets: {}", stats["patchsets"]);
 
@@ -297,8 +297,8 @@ async fn handle_status(client: &Client, base_url: &str, format: OutputFormat) ->
 
                     let zero = serde_json::json!(0);
                     for (label, key) in items {
-                         let val = breakdown.get(key).unwrap_or(&zero);
-                         println!("  {:<15} {}", label, val);
+                        let val = breakdown.get(key).unwrap_or(&zero);
+                        println!("  {:<15} {}", label, val);
                     }
                 }
             }
@@ -318,7 +318,10 @@ async fn handle_list(
     filter: Option<String>,
     format: OutputFormat,
 ) -> Result<()> {
-    let mut url = format!("{}/api/patchsets?page={}&per_page={}", base_url, page, per_page);
+    let mut url = format!(
+        "{}/api/patchsets?page={}&per_page={}",
+        base_url, page, per_page
+    );
     if let Some(q) = filter {
         url.push_str(&format!("&q={}", q));
     }
@@ -327,16 +330,19 @@ async fn handle_list(
 
     if resp.status().is_success() {
         let data: PatchsetsResponse = resp.json().await?;
-        
+
         match format {
-             OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&data)?),
-             OutputFormat::Text => {
+            OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&data)?),
+            OutputFormat::Text => {
                 if data.items.is_empty() {
                     println!("No items found.");
                     return Ok(());
                 }
 
-                println!("{:<10} {:<18} {:<50} {:<20}", "ID", "Status", "Subject", "Date");
+                println!(
+                    "{:<10} {:<18} {:<50} {:<20}",
+                    "ID", "Status", "Subject", "Date"
+                );
                 println!("{:-<10} {:-<18} {:-<50} {:-<20}", "", "", "", "");
 
                 for item in data.items {
@@ -350,28 +356,36 @@ async fn handle_list(
 
                     print!("{:<10} ", item.id);
                     print_colored(status_color, &format!("{:<18}", status_str));
-                    
+
                     let subject = item.subject.unwrap_or_else(|| "(no subject)".to_string());
                     let subject_display = if subject.len() > 48 {
                         format!("{}...", &subject[..45])
                     } else {
                         subject
                     };
-                    
+
                     let date_display = if let Some(ts) = item.date {
                         format_timestamp(ts)
                     } else {
                         "-".to_string()
                     };
-                    
+
                     println!(" {:<50} {}", subject_display, date_display);
                 }
-                
-                println!("\nPage {} of {} (Total: {})", data.page, data.total.div_ceil(data.per_page), data.total);
-             }
+
+                println!(
+                    "\nPage {} of {} (Total: {})",
+                    data.page,
+                    data.total.div_ceil(data.per_page),
+                    data.total
+                );
+            }
         }
     } else {
-        return Err(anyhow::anyhow!("Failed to list patchsets: {}", resp.status()));
+        return Err(anyhow::anyhow!(
+            "Failed to list patchsets: {}",
+            resp.status()
+        ));
     }
 
     Ok(())
@@ -395,7 +409,10 @@ async fn handle_show(
                 return Err(anyhow::anyhow!("No patchsets found"));
             }
         } else {
-            return Err(anyhow::anyhow!("Failed to find latest patchset: {}", resp.status()));
+            return Err(anyhow::anyhow!(
+                "Failed to find latest patchset: {}",
+                resp.status()
+            ));
         }
     }
 
@@ -409,12 +426,12 @@ async fn handle_show(
         // Fetch review if available
         let mut review_data = None;
         if status == "Reviewed" || status == "Failed" || status == "Failed To Apply" {
-             let review_url = format!("{}/api/review?patchset_id={}", base_url, id);
-             let review_resp = client.get(&review_url).send().await?;
-             
-             if review_resp.status().is_success() {
-                 review_data = Some(review_resp.json::<Value>().await?);
-             }
+            let review_url = format!("{}/api/review?patchset_id={}", base_url, id);
+            let review_resp = client.get(&review_url).send().await?;
+
+            if review_resp.status().is_success() {
+                review_data = Some(review_resp.json::<Value>().await?);
+            }
         }
 
         match format {
@@ -430,7 +447,7 @@ async fn handle_show(
                 println!("  Subject:   {}", details["subject"].as_str().unwrap_or(""));
                 println!("  Author:    {}", details["author"].as_str().unwrap_or(""));
                 println!("  Status:    {}", details["status"].as_str().unwrap_or(""));
-                
+
                 if let Some(ts) = details["date"].as_i64() {
                     println!("  Date:      {}", format_timestamp(ts));
                 }
@@ -439,28 +456,32 @@ async fn handle_show(
                     print_colored(Color::Red, "\nFailure Reason: ");
                     println!("{}", reason);
                 }
-                
-                if let Some(patches) = details.get("patches").and_then(|p| p.as_array()) {
-                     println!("\nPatches ({}):", patches.len());
-                     for patch in patches {
-                         let idx = patch["part_index"].as_i64().unwrap_or(0);
-                         let status = patch["status"].as_str().unwrap_or("");
-                         let apply_err = patch["apply_error"].as_str();
-                         
-                         print!("  [{}] {}", idx, patch["subject"].as_str().unwrap_or(""));
-                         if !status.is_empty() && status != "Pending" {
-                             print!(" (");
-                             let color = if status == "Failed" { Color::Red } else { Color::Green };
-                             print_colored(color, status);
-                             print!(")");
-                         }
-                         println!();
 
-                         if let Some(err) = apply_err {
-                             print_colored(Color::Red, "      Error: ");
-                             println!("{}", err.trim());
-                         }
-                     }
+                if let Some(patches) = details.get("patches").and_then(|p| p.as_array()) {
+                    println!("\nPatches ({}):", patches.len());
+                    for patch in patches {
+                        let idx = patch["part_index"].as_i64().unwrap_or(0);
+                        let status = patch["status"].as_str().unwrap_or("");
+                        let apply_err = patch["apply_error"].as_str();
+
+                        print!("  [{}] {}", idx, patch["subject"].as_str().unwrap_or(""));
+                        if !status.is_empty() && status != "Pending" {
+                            print!(" (");
+                            let color = if status == "Failed" {
+                                Color::Red
+                            } else {
+                                Color::Green
+                            };
+                            print_colored(color, status);
+                            print!(")");
+                        }
+                        println!();
+
+                        if let Some(err) = apply_err {
+                            print_colored(Color::Red, "      Error: ");
+                            println!("{}", err.trim());
+                        }
+                    }
                 }
 
                 if let Some(review) = review_data {
@@ -475,7 +496,7 @@ async fn handle_show(
                         print_colored(color, verdict);
                         println!();
                     }
-                    
+
                     if let Some(model) = review.get("model").and_then(|m| m.as_str()) {
                         println!("  Model:   {}", model);
                     }
@@ -483,9 +504,9 @@ async fn handle_show(
                     if let Some(summary) = review.get("summary").and_then(|s| s.as_str()) {
                         println!("\n{}", summary);
                     }
-                    
+
                     if let Some(logs) = review.get("logs").and_then(|l| l.as_str()) {
-                         println!("\nLogs:\n{}", logs);
+                        println!("\nLogs:\n{}", logs);
                     }
                 } else if let Some(logs) = details.get("baseline_logs").and_then(|l| l.as_str()) {
                     // Fallback to baseline logs if review is missing (e.g. Failed To Apply during baseline prep)
@@ -495,9 +516,11 @@ async fn handle_show(
                 }
             }
         }
-
     } else {
-        return Err(anyhow::anyhow!("Failed to show patchset: {}", resp.status()));
+        return Err(anyhow::anyhow!(
+            "Failed to show patchset: {}",
+            resp.status()
+        ));
     }
 
     Ok(())
@@ -505,7 +528,9 @@ async fn handle_show(
 
 fn print_colored(color: Color, text: &str) {
     let mut stdout = StandardStream::stdout(ColorChoice::Auto);
-    stdout.set_color(ColorSpec::new().set_fg(Some(color))).unwrap();
+    stdout
+        .set_color(ColorSpec::new().set_fg(Some(color)))
+        .unwrap();
     write!(&mut stdout, "{}", text).unwrap();
     stdout.reset().unwrap();
 }
