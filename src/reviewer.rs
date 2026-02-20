@@ -260,11 +260,11 @@ impl Reviewer {
 
         if let Err(e) = ctx
             .db
-            .update_patchset_status(patchset_id, ReviewStatus::Applying.as_str())
+            .update_patchset_status(patchset_id, ReviewStatus::InReview.as_str())
             .await
         {
             error!(
-                "Failed to update status to Applying for {}: {}",
+                "Failed to update status to In Review for {}: {}",
                 patchset_id, e
             );
             return;
@@ -827,7 +827,7 @@ impl Reviewer {
 
             let _ = ctx
                 .db
-                .update_review_status(review_id, ReviewStatus::Applying.as_str(), None)
+                .update_review_status(review_id, ReviewStatus::InReview.as_str(), None)
                 .await;
 
             let result = run_review_tool(
@@ -2138,7 +2138,7 @@ echo '{"patchset_id": 1, "patches": []}'
                 libsql::params![p_id_3],
             )
             .await?;
-        // Review might be created (Pending/Applying/InReview) or not if process failed early (but create_review is called early in loop)
+        // Review might be created (Pending/InReview) or not if process failed early (but create_review is called early in loop)
         // Wait, loop calls create_review at start of loop.
         // If run_review_tool fails (which it will), we get ReviewFailed.
 

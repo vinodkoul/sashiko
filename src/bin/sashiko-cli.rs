@@ -287,7 +287,6 @@ async fn handle_status(client: &Client, base_url: &str, format: OutputFormat) ->
                     println!("\nQueue Breakdown:");
                     let items = [
                         ("Pending", "pending"),
-                        ("Applying", "applying"),
                         ("Reviewing", "reviewing"),
                         ("Reviewed", "reviewed"),
                         ("Failed", "failed"),
@@ -350,7 +349,7 @@ async fn handle_list(
                     let status_color = match status_str {
                         "Reviewed" => Color::Green,
                         "Failed" | "Error" | "Failed To Apply" => Color::Red,
-                        "Pending" | "Applying" | "In Review" => Color::Yellow,
+                        "Pending" | "In Review" => Color::Yellow,
                         _ => Color::White,
                     };
 

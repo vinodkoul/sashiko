@@ -471,8 +471,7 @@ async fn get_stats(State(state): State<Arc<AppState>>) -> Json<serde_json::Value
         .unwrap_or_default();
 
     let pending = *counts.get("Pending").unwrap_or(&0);
-    let applying = *counts.get("Applying").unwrap_or(&0);
-    let reviewing = *counts.get("In Review").unwrap_or(&0); // DB uses "In Review"
+    let reviewing = *counts.get("In Review").unwrap_or(&0) + *counts.get("Applying").unwrap_or(&0); // Include legacy "Applying" in reviewing count
     let reviewed = *counts.get("Reviewed").unwrap_or(&0);
     let failed = *counts.get("Failed").unwrap_or(&0);
     let failed_to_apply = *counts.get("Failed To Apply").unwrap_or(&0);
@@ -486,7 +485,6 @@ async fn get_stats(State(state): State<Arc<AppState>>) -> Json<serde_json::Value
         "patchsets": patchsets,
         "breakdown": {
             "pending": pending,
-            "applying": applying,
             "reviewing": reviewing,
             "reviewed": reviewed,
             "failed": failed,

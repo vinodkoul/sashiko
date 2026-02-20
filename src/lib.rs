@@ -38,8 +38,6 @@ pub enum ReviewStatus {
     Incomplete,
     /// The patchset is complete and waiting for review.
     Pending,
-    /// The patchset is currently being applied to a worktree.
-    Applying,
     /// The patchset is currently under AI review.
     InReview,
     /// The review process was cancelled.
@@ -59,7 +57,6 @@ impl fmt::Display for ReviewStatus {
         match self {
             ReviewStatus::Incomplete => write!(f, "Incomplete"),
             ReviewStatus::Pending => write!(f, "Pending"),
-            ReviewStatus::Applying => write!(f, "Applying"),
             ReviewStatus::InReview => write!(f, "In Review"),
             ReviewStatus::Cancelled => write!(f, "Cancelled"),
             ReviewStatus::Skipped => write!(f, "Skipped"),
@@ -77,7 +74,6 @@ impl FromStr for ReviewStatus {
         match s {
             "Incomplete" => Ok(ReviewStatus::Incomplete),
             "Pending" => Ok(ReviewStatus::Pending),
-            "Applying" => Ok(ReviewStatus::Applying),
             "In Review" => Ok(ReviewStatus::InReview),
             "Cancelled" => Ok(ReviewStatus::Cancelled),
             "Skipped" => Ok(ReviewStatus::Skipped),
@@ -94,7 +90,6 @@ impl ReviewStatus {
         match self {
             ReviewStatus::Incomplete => "Incomplete",
             ReviewStatus::Pending => "Pending",
-            ReviewStatus::Applying => "Applying",
             ReviewStatus::InReview => "In Review",
             ReviewStatus::Cancelled => "Cancelled",
             ReviewStatus::Skipped => "Skipped",

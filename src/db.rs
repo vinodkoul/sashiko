@@ -332,6 +332,10 @@ impl Database {
         let schema = include_str!("schema.sql");
         self.conn.execute_batch(schema).await?;
 
+        // Consolidate 'Applying' and 'In Review' states
+        let _ = self.conn.execute("UPDATE patchsets SET status = 'In Review' WHERE status = 'Applying'", ()).await;
+        let _ = self.conn.execute("UPDATE reviews SET status = 'In Review' WHERE status = 'Applying'", ()).await;
+
         // Manual migrations for existing tables
         let _ = self
             .try_add_column("messages", "to_recipients", "TEXT")
@@ -2645,7 +2649,7 @@ impl Database {
         let count_ps = self
             .conn
             .execute(
-                format!("UPDATE patchsets SET status = '{}' WHERE status IN ('Applying', 'In Review', 'Reviewing')", status_pending).as_str(),
+                format!("UPDATE patchsets SET status = '{}' WHERE status IN ('In Review', 'Reviewing')", status_pending).as_str(),
                 (),
             )
             .await?;
@@ -2655,7 +2659,7 @@ impl Database {
             .conn
             .execute(
                 format!(
-                    "UPDATE reviews SET status = '{}' WHERE status IN ('Applying', 'In Review')",
+                    "UPDATE reviews SET status = '{}' WHERE status = 'In Review'",
                     status_pending
                 )
                 .as_str(),
