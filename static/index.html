@@ -172,7 +172,7 @@
             color: #0366d6;
         }
 
-        .status-Applying,
+        .status-In,
         .status-Analyzing,
         .status-Reviewing {
             color: #d67f05;
@@ -270,7 +270,7 @@
         }
         
         .status-dot.status-Pending { background-color: #0366d6; }
-        .status-dot.status-Applying { background-color: #d67f05; }
+        .status-dot.status-InReview { background-color: #d67f05; }
         .status-dot.status-Reviewed { background-color: #22863a; }
         .status-dot.status-Failed { background-color: #d73a49; }
         .status-dot.status-FailedToApply { background-color: #d73a49; }
@@ -1225,8 +1225,8 @@
                 state.stats = data;
                 const b = data.breakdown || {};
                 
-                // Calculate In Progress (Applying + Reviewing)
-                const inProgress = (b.applying || 0) + (b.reviewing || 0);
+                // Calculate In Progress (Reviewing)
+                const inProgress = (b.reviewing || 0);
 
                 document.getElementById('stats').outerHTML = `
                     <div class="stats-container" id="stats">
@@ -1244,8 +1244,8 @@
                         <div class="stats-group" title="Pending">
                             <span class="status-dot status-Pending"></span> ${b.pending || 0}
                         </div>
-                        <div class="stats-group" title="In Progress (Applying/Reviewing)">
-                            <span class="status-dot status-Applying"></span> ${inProgress}
+                        <div class="stats-group" title="In Review">
+                            <span class="status-dot status-InReview"></span> ${inProgress}
                         </div>
                         <div class="stats-group" title="Reviewed">
                             <span class="status-dot status-Reviewed"></span> ${b.reviewed || 0}
@@ -2191,7 +2191,7 @@ ${escapeHtml(data.body || '(no body)', true, false)}</pre>
                 html += '<div class="stat-card-grid">';
 
                 // Filter for Total Reviews and Success Rate: Exclude in-progress reviews
-                const completedReviews = reviews.filter(r => !['Pending', 'Applying', 'In Review'].includes(r.status));
+                const completedReviews = reviews.filter(r => !['Pending', 'In Review'].includes(r.status));
                 const totalReviews = completedReviews.reduce((acc, r) => acc + r.count, 0);
                 const successful = completedReviews.filter(r => r.status === 'Reviewed').reduce((acc, r) => acc + r.count, 0);
                 // Failures in completed reviews (includes Failed and FailedToApply)
@@ -2207,10 +2207,10 @@ ${escapeHtml(data.body || '(no body)', true, false)}</pre>
                 html += '<h3>Findings Severity</h3><div class="chart-section"><div id="chart-findings" style="width:100%; height:300px;"></div></div>';
 
                 // Calculate total tokens
-                // Exclude In Review (Pending/Applying/In Review) AND Failed To Apply
+                // Exclude In Review (Pending/In Review) AND Failed To Apply
                 const tokenReviews = reviews.filter(r => {
                     const s = r.status.toLowerCase().replace(/ /g, ''); // Normalize "Failed To Apply" -> "failedtoapply"
-                    return !['pending', 'applying', 'inreview'].includes(s) && !s.includes('failedtoapply');
+                    return !['pending', 'inreview'].includes(s) && !s.includes('failedtoapply');
                 });
 
                 const totalTokensIn = tokenReviews.reduce((acc, r) => acc + (r.tokens_in || 0), 0);
@@ -2279,7 +2279,7 @@ ${escapeHtml(data.body || '(no body)', true, false)}</pre>
                     const getColor = (s) => {
                          if (s === 'Reviewed') return colors.secondary;
                          if (s === 'Pending') return colors.primary;
-                         if (s === 'Applying') return '#d67f05';
+                         if (s === 'In Review') return '#d67f05';
                          if (s.toLowerCase().includes('failed')) return colors.failure;
                          return null;
                     };
