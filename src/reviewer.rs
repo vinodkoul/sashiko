@@ -298,47 +298,16 @@ impl Reviewer {
 
         // Determine Baseline Candidates and check patchset size limits
         let mut all_files = Vec::new();
-        let mut total_lines_changed = 0;
 
         for p in patches_json.iter() {
             if let Some(diff_str) = p["diff"].as_str() {
                 let files = extract_files_from_diff(diff_str);
                 all_files.extend(files);
-
-                for line in diff_str.lines() {
-                    if (line.starts_with('+') && !line.starts_with("+++"))
-                        || (line.starts_with('-') && !line.starts_with("---"))
-                    {
-                        total_lines_changed += 1;
-                    }
-                }
             }
         }
 
         all_files.sort();
         all_files.dedup();
-        let unique_files_count = all_files.len();
-
-        if total_lines_changed > ctx.settings.review.max_lines_changed
-            || unique_files_count > ctx.settings.review.max_files_touched
-        {
-            info!(
-                "Patchset {} exceeds size limits (lines: {}, files: {}). Skipping review.",
-                patchset_id, total_lines_changed, unique_files_count
-            );
-            
-            // Mark individual patches as skipped
-            for p in &diffs {
-                let patch_id = p.0;
-                let _ = ctx.db.update_patch_status(patch_id, ReviewStatus::Skipped.as_str()).await;
-            }
-
-            let _ = ctx
-                .db
-                .update_patchset_status(patchset_id, ReviewStatus::Skipped.as_str())
-                .await;
-            return;
-        }
 
         let body = if let Some(mid) = &patchset.message_id {
             ctx.db.get_message_body(mid).await.unwrap_or(None)
@@ -478,6 +447,28 @@ impl Reviewer {
                         patch_id
                     );
                     should_skip = true;
+                }
+
+                if !should_skip {
+                    let mut unique_patch_files = extract_files_from_diff(diff);
+                    unique_patch_files.sort();
+                    unique_patch_files.dedup();
+                    let patch_files_count = unique_patch_files.len();
+
+                    let patch_lines_changed = diff.lines().filter(|line| {
+                        (line.starts_with('+') && !line.starts_with("+++"))
+                            || (line.starts_with('-') && !line.starts_with("---"))
+                    }).count();
+
+                    if patch_lines_changed > ctx.settings.review.max_lines_changed
+                        || patch_files_count > ctx.settings.review.max_files_touched
+                    {
+                        info!(
+                            "Skipping patch {} (exceeds size limits: {} lines, {} files)",
+                            patch_id, patch_lines_changed, patch_files_count
+                        );
+                        should_skip = true;
+                    }
                 }
 
                 if should_skip {
