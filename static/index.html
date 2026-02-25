@@ -1478,40 +1478,17 @@
             let paginationHtml = '';
             if (data.total_patches_in_db > data.limit) {
                 const totalPages = Math.ceil(data.total_patches_in_db / data.limit);
-                let pagesHtml = '';
+                const basePath = `#/patchset/${encodeURIComponent(data.id || data.message_id)}`;
                 
-                // Show a few pages around the current page
-                const maxPagesToShow = 9;
-                let startPage = Math.max(1, data.page - Math.floor(maxPagesToShow / 2));
-                let endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
-                
-                if (endPage - startPage + 1 < maxPagesToShow) {
-                    startPage = Math.max(1, endPage - maxPagesToShow + 1);
-                }
-
-                if (startPage > 1) {
-                    pagesHtml += `<a href="#/patchset/${encodeURIComponent(data.id || data.message_id)}?page=1&limit=${data.limit}" style="padding:4px 8px; border:1px solid #ccc; border-radius:4px; margin:0 2px; text-decoration:none;">1</a>`;
-                    if (startPage > 2) {
-                         pagesHtml += `<span style="padding:4px 8px; margin:0 2px;">...</span>`;
-                    }
-                }
-
-                for (let i = startPage; i <= endPage; i++) {
-                    if (i === data.page) {
-                        pagesHtml += `<span style="padding:4px 8px; background:#007bff; color:white; border-radius:4px; margin:0 2px;">${i}</span>`;
-                    } else {
-                        pagesHtml += `<a href="#/patchset/${encodeURIComponent(data.id || data.message_id)}?page=${i}&limit=${data.limit}" style="padding:4px 8px; border:1px solid #ccc; border-radius:4px; margin:0 2px; text-decoration:none;">${i}</a>`;
-                    }
-                }
-
-                if (endPage < totalPages) {
-                    if (endPage < totalPages - 1) {
-                         pagesHtml += `<span style="padding:4px 8px; margin:0 2px;">...</span>`;
-                    }
-                    pagesHtml += `<a href="#/patchset/${encodeURIComponent(data.id || data.message_id)}?page=${totalPages}&limit=${data.limit}" style="padding:4px 8px; border:1px solid #ccc; border-radius:4px; margin:0 2px; text-decoration:none;">${totalPages}</a>`;
-                }
-
-                paginationHtml = `<div style="margin:20px 0; text-align:center;">${pagesHtml}</div>`;
+                paginationHtml = `
+                    <div class="pagination">
+                        <button onclick="navigate('${basePath}?page=1&limit=${data.limit}')" ${data.page <= 1 ? 'disabled' : ''}>First</button>
+                        <button onclick="navigate('${basePath}?page=${data.page - 1}&limit=${data.limit}')" ${data.page <= 1 ? 'disabled' : ''}>Prev</button>
+                        <span>Page ${data.page} of ${totalPages} (${data.total_patches_in_db} total)</span>
+                        <button onclick="navigate('${basePath}?page=${data.page + 1}&limit=${data.limit}')" ${data.page >= totalPages ? 'disabled' : ''}>Next</button>
+                        <button onclick="navigate('${basePath}?page=${totalPages}&limit=${data.limit}')" ${data.page >= totalPages ? 'disabled' : ''}>Last</button>
+                    </div>
+                `;
             }
 
             // Only show baseline/thread section if NOT a direct git submission (heuristic: message_id is SHA or synthetic local ID or subject indicates git import)
