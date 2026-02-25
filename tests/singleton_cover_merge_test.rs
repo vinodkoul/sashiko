@@ -79,7 +79,11 @@ async fn test_cover_letter_merges_into_singleton() {
     db.create_patch(ps_id_1, msg_1, 1, "diff").await.unwrap();
 
     // Verify state
-    let d1 = db.get_patchset_details(ps_id_1, None, None).await.unwrap().unwrap();
+    let d1 = db
+        .get_patchset_details(ps_id_1, None, None)
+        .await
+        .unwrap()
+        .unwrap();
     // subject_index is not exposed in details JSON, so we skip checking it.
     assert_eq!(d1["message_id"].as_str(), Some(msg_1));
 
@@ -131,7 +135,11 @@ async fn test_cover_letter_merges_into_singleton() {
     );
 
     // Verify state
-    let d2 = db.get_patchset_details(ps_id_1, None, None).await.unwrap().unwrap();
+    let d2 = db
+        .get_patchset_details(ps_id_1, None, None)
+        .await
+        .unwrap()
+        .unwrap();
     // subject_index is not exposed in details JSON, so we skip checking it.
     assert_eq!(d2["message_id"].as_str(), Some(msg_0));
 }

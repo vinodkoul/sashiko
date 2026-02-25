@@ -4224,7 +4224,11 @@ mod tests {
         db.create_patch(ps1, "msg1", 1, "").await.unwrap();
         db.create_patch(ps2, "msg2", 2, "").await.unwrap();
 
-        let details = db.get_patchset_details(ps1, None, None).await.unwrap().unwrap();
+        let details = db
+            .get_patchset_details(ps1, None, None)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(details["received_parts"], 2);
     }
 
@@ -4278,7 +4282,11 @@ mod tests {
         // 2. Add patch so it becomes full
         db.create_patch(ps1, msg_id, 1, "diff").await.unwrap();
 
-        let details = db.get_patchset_details(ps1, None, None).await.unwrap().unwrap();
+        let details = db
+            .get_patchset_details(ps1, None, None)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(details["received_parts"], 1);
         assert_eq!(details["total_parts"], 1);
 

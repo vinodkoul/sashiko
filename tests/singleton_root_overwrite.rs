@@ -112,7 +112,11 @@ async fn test_singleton_root_overwrite_prevention() {
     db.create_patch(ps_id, root_id, 1, "diff").await.unwrap();
 
     // 3. Verify Total Parts
-    let details = db.get_patchset_details(ps_id, None, None).await.unwrap().unwrap();
+    let details = db
+        .get_patchset_details(ps_id, None, None)
+        .await
+        .unwrap()
+        .unwrap();
     let total = details["total_parts"].as_u64().unwrap();
     let received = details["received_parts"].as_u64().unwrap();
 

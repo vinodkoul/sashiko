@@ -125,7 +125,11 @@ async fn test_cover_letter_merges_into_full_patchset() {
         .unwrap();
 
     // Verify it is full
-    let details = db.get_patchset_details(ps_id, None, None).await.unwrap().unwrap();
+    let details = db
+        .get_patchset_details(ps_id, None, None)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(details["received_parts"].as_u64(), Some(2));
     assert_eq!(details["total_parts"].as_u64(), Some(2));
 
@@ -178,6 +182,10 @@ async fn test_cover_letter_merges_into_full_patchset() {
     );
 
     // Verify cover letter ID was updated
-    let details_updated = db.get_patchset_details(ps_id, None, None).await.unwrap().unwrap();
+    let details_updated = db
+        .get_patchset_details(ps_id, None, None)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(details_updated["message_id"].as_str(), Some(cover_msg_id));
 }

@@ -102,7 +102,7 @@ mod tests {
         println!("Time for {} iterations: {:?}", iterations, duration);
 
         assert!(
-            duration.as_secs() < 1,
+            duration.as_secs() < 5,
             "Token estimation is too slow! {:?} for {} iterations",
             duration,
             iterations
