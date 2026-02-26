@@ -24,7 +24,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::time::Duration;
-use tokio::time::sleep;
+
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -394,46 +394,7 @@ impl GenAiClient for GeminiClient {
         &self,
         request: GenerateContentRequest,
     ) -> Result<GenerateContentResponse> {
-        let mut retry_count = 0;
-        let max_retries = 10;
-        loop {
-            match self.generate_content_single(&request).await {
-                Ok(resp) => return Ok(resp),
-                Err(e) => {
-                    let mut sleep_duration = None;
-                    if let Some(GeminiError::QuotaExceeded(d)) = e.downcast_ref::<GeminiError>() {
-                        sleep_duration = Some(*d);
-                        tracing::warn!(
-                            "Gemini API quota exceeded. Retrying in {:.2}s...",
-                            d.as_secs_f64()
-                        );
-                    } else if let Some(GeminiError::TransientError(d, _msg)) =
-                        e.downcast_ref::<GeminiError>()
-                    {
-                        let backoff = (d.as_secs_f64() * (1.5_f64.powi(retry_count))).min(300.0);
-                        sleep_duration = Some(Duration::from_secs_f64(backoff));
-                        tracing::warn!(
-                            "Gemini API transient error. Retrying in {:.2}s...",
-                            backoff
-                        );
-                    }
-
-                    if let Some(duration) = sleep_duration {
-                        retry_count += 1;
-                        if retry_count > max_retries {
-                            tracing::error!(
-                                "Max retries ({}) exceeded for Gemini API",
-                                max_retries
-                            );
-                            return Err(e);
-                        }
-                        sleep(duration).await;
-                        continue;
-                    }
-                    return Err(e);
-                }
-            }
-        }
+        self.generate_content_single(&request).await
     }
 
     async fn create_cached_content(
@@ -491,46 +452,7 @@ impl GenAiClient for GeminiClient {
         &self,
         request: GenerateContentWithCacheRequest,
     ) -> Result<GenerateContentResponse> {
-        let mut retry_count = 0;
-        let max_retries = 10;
-        loop {
-            match self.generate_content_with_cache_single(&request).await {
-                Ok(resp) => return Ok(resp),
-                Err(e) => {
-                    let mut sleep_duration = None;
-                    if let Some(GeminiError::QuotaExceeded(d)) = e.downcast_ref::<GeminiError>() {
-                        sleep_duration = Some(*d);
-                        tracing::warn!(
-                            "Gemini API quota exceeded (cache). Retrying in {:.2}s...",
-                            d.as_secs_f64()
-                        );
-                    } else if let Some(GeminiError::TransientError(d, _msg)) =
-                        e.downcast_ref::<GeminiError>()
-                    {
-                        let backoff = (d.as_secs_f64() * (1.5_f64.powi(retry_count))).min(300.0);
-                        sleep_duration = Some(Duration::from_secs_f64(backoff));
-                        tracing::warn!(
-                            "Gemini API transient error (cache). Retrying in {:.2}s...",
-                            backoff
-                        );
-                    }
-
-                    if let Some(duration) = sleep_duration {
-                        retry_count += 1;
-                        if retry_count > max_retries {
-                            tracing::error!(
-                                "Max retries ({}) exceeded for Gemini API (cache)",
-                                max_retries
-                            );
-                            return Err(e);
-                        }
-                        sleep(duration).await;
-                        continue;
-                    }
-                    return Err(e);
-                }
-            }
-        }
+        self.generate_content_with_cache_single(&request).await
     }
 }
 

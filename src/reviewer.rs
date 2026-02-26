@@ -14,7 +14,7 @@
 
 use crate::ReviewStatus;
 use crate::ai::cache::CacheManager;
-use crate::ai::proxy::QuotaManager;
+use crate::ai::quota::QuotaManager;
 use crate::ai::{AiProvider, AiRequest, AiResponse, create_provider};
 use crate::baseline::{BaselineRegistry, BaselineResolution, extract_files_from_diff};
 use crate::db::{AiInteractionParams, Database, Finding, PatchsetRow, Severity, ToolUsage};
@@ -1416,9 +1416,14 @@ async fn run_review_tool(
         .take()
         .ok_or_else(|| anyhow::anyhow!("No stdout"))?;
 
+    use std::time::Duration;
+    use tokio::time::Instant as TokioInstant;
+    use tokio::time::timeout_at;
+
     // Perform interaction with timeout
-    let interaction_result =
-        tokio::time::timeout(std::time::Duration::from_secs(settings.review.timeout_seconds), async {
+    let mut deadline = TokioInstant::now() + Duration::from_secs(settings.review.timeout_seconds);
+
+    let interaction_result = async {
             // Send initial payload
             let mut input_str = serde_json::to_string(input_payload)?;
             input_str.push('\n');
@@ -1430,7 +1435,15 @@ async fn run_review_tool(
             let mut final_result: Option<Value> = None;
             let mut ai_started = false;
 
-            while let Ok(Some(line)) = lines.next_line().await {
+            while let Ok(line_result) = timeout_at(deadline, lines.next_line()).await {
+                let line = match line_result {
+                    Ok(Some(l)) => l,
+                    Ok(None) => break,
+                    Err(e) => {
+                        tracing::error!("Error reading line from child: {}", e);
+                        break;
+                    }
+                };
                 // Try to parse as JSON
                 if let Ok(json_msg) = serde_json::from_str::<Value>(&line) {
                     if let Some(type_str) = json_msg.get("type").and_then(|v| v.as_str()) {
@@ -1469,11 +1482,31 @@ async fn run_review_tool(
 
                                         let mut cache_retry_done = false;
                                         let resp_payload = loop {
-                                            quota_manager.wait_for_access().await;
+                                            let slept = quota_manager.wait_for_access().await;
+                                            deadline += slept;
+
+                                            if TokioInstant::now() > deadline {
+                                                break Err(anyhow::anyhow!("Review tool timed out (active time exceeded)"));
+                                            }
+
                                             match provider.generate_content(req.clone()).await {
-                                                Ok(resp) => break Ok(resp),
+                                                Ok(resp) => {
+                                                    quota_manager.report_success().await;
+                                                    break Ok(resp);
+                                                }
                                                 Err(e) => {
                                                     let err_str = e.to_string();
+
+                                                    // Categorize and report errors to QuotaManager
+                                                    if err_str.contains("Quota exceeded") || err_str.contains("429") {
+                                                        quota_manager.report_quota_error(Duration::from_secs(60)).await;
+                                                        continue;
+                                                    }
+                                                    if err_str.contains("Transient error") || err_str.contains("503") || err_str.contains("529") || err_str.contains("overloaded") {
+                                                        quota_manager.report_transient_error().await;
+                                                        continue;
+                                                    }
+
                                                     // Handle Gemini context cache expiration (403 Permission Denied: CachedContent not found)
                                                     if !cache_retry_done
                                                         && err_str.contains("403")
@@ -1628,109 +1661,100 @@ async fn run_review_tool(
             } else {
                 Err(anyhow::anyhow!("Review tool finished without valid result"))
             }
-        })
-        .await;
+        }.await;
 
     // Handle timeout and child process cleanup
+    // Interaction finished (Success or Error inside interaction)
+    drop(stdin); // Close stdin to signal EOF/finish to child if it's still running
+    let _ = child.wait().await; // Reap zombie
+
     match interaction_result {
-        Ok(res) => {
-            // Interaction finished (Success or Error inside interaction)
-            drop(stdin); // Close stdin to signal EOF/finish to child if it's still running
-            let _ = child.wait().await; // Reap zombie
+        Ok(json) => {
+            // Update DB with patch statuses if final_result available
+            if let Some(patches) = json["patches"].as_array() {
+                for p in patches {
+                    let idx = p["index"].as_i64().unwrap_or(0);
+                    let status = p["status"].as_str().unwrap_or("error");
 
-            // Now process the result if it was Ok
-            match res {
-                Ok(json) => {
-                    // Update DB with patch statuses if final_result available
-                    if let Some(patches) = json["patches"].as_array() {
-                        for p in patches {
-                            let idx = p["index"].as_i64().unwrap_or(0);
-                            let status = p["status"].as_str().unwrap_or("error");
+                    let stderr_str = p["stderr"].as_str().unwrap_or("");
+                    let stdout_str = p["stdout"].as_str().unwrap_or("");
+                    let am_error = p["am_error"].as_str().unwrap_or("");
 
-                            let stderr_str = p["stderr"].as_str().unwrap_or("");
-                            let stdout_str = p["stdout"].as_str().unwrap_or("");
-                            let am_error = p["am_error"].as_str().unwrap_or("");
-
-                            let mut full_log = String::new();
-                            if !am_error.is_empty() {
-                                full_log.push_str("git am error:\n");
-                                full_log.push_str(am_error);
-                                full_log.push_str("\n\n");
-                            }
-                            if !stdout_str.is_empty() {
-                                full_log.push_str("stdout:\n");
-                                full_log.push_str(stdout_str);
-                                full_log.push('\n');
-                            }
-                            if !stderr_str.is_empty() {
-                                full_log.push_str("stderr:\n");
-                                full_log.push_str(stderr_str);
-                            }
-
-                            let error_msg = if full_log.trim().is_empty() {
-                                None
-                            } else {
-                                Some(full_log.as_str())
-                            };
-
-                            if let Err(e) = db
-                                .update_patch_application_status(
-                                    patchset_id,
-                                    idx,
-                                    status,
-                                    error_msg,
-                                )
-                                .await
-                            {
-                                error!(
-                                    "Failed to update patch status for ps={} idx={}: {}",
-                                    patchset_id, idx, e
-                                );
-                            }
-                        }
+                    let mut full_log = String::new();
+                    if !am_error.is_empty() {
+                        full_log.push_str("git am error:\n");
+                        full_log.push_str(am_error);
+                        full_log.push_str("\n\n");
                     }
-                    Ok(json)
-                }
-                Err(e) => {
-                    if let Some(idx) = review_index {
-                        let _ = db
-                            .update_patch_application_status(
-                                patchset_id,
-                                idx,
-                                "error",
-                                Some(&e.to_string()),
-                            )
-                            .await;
+                    if !stdout_str.is_empty() {
+                        full_log.push_str("stdout:\n");
+                        full_log.push_str(stdout_str);
+                        full_log.push('\n');
                     }
-                    Err(e)
+                    if !stderr_str.is_empty() {
+                        full_log.push_str("stderr:\n");
+                        full_log.push_str(stderr_str);
+                    }
+
+                    let error_msg = if full_log.trim().is_empty() {
+                        None
+                    } else {
+                        Some(full_log.as_str())
+                    };
+
+                    if let Err(e) = db
+                        .update_patch_application_status(patchset_id, idx, status, error_msg)
+                        .await
+                    {
+                        error!(
+                            "Failed to update patch status for ps={} idx={}: {}",
+                            patchset_id, idx, e
+                        );
+                    }
                 }
             }
+            Ok(json)
         }
-        Err(_) => {
-            // Timeout occurred
-            error!(
-                "Review tool timed out after {} seconds. Killing process.",
-                settings.review.timeout_seconds
-            );
-            let _ = child.kill().await;
-
-            if let Some(idx) = review_index
-                && let Err(e) = db
-                    .update_patch_application_status(
-                        patchset_id,
-                        idx,
-                        "error",
-                        Some("Review tool timed out"),
-                    )
-                    .await
+        Err(e) => {
+            // Check if it's the specific active time exceeded error we throw in the loop
+            if e.to_string()
+                .contains("Review tool timed out (active time exceeded)")
             {
                 error!(
-                    "Failed to update patch status for ps={} idx={}: {}",
-                    patchset_id, idx, e
+                    "Review tool timed out after {} active seconds. Killing process.",
+                    settings.review.timeout_seconds
                 );
-            }
+                let _ = child.kill().await;
 
-            Err(anyhow::anyhow!("Review tool timed out"))
+                if let Some(idx) = review_index
+                    && let Err(e2) = db
+                        .update_patch_application_status(
+                            patchset_id,
+                            idx,
+                            "error",
+                            Some("Review tool timed out"),
+                        )
+                        .await
+                {
+                    error!(
+                        "Failed to update patch status for ps={} idx={}: {}",
+                        patchset_id, idx, e2
+                    );
+                }
+                Err(e)
+            } else {
+                if let Some(idx) = review_index {
+                    let _ = db
+                        .update_patch_application_status(
+                            patchset_id,
+                            idx,
+                            "error",
+                            Some(&e.to_string()),
+                        )
+                        .await;
+                }
+                Err(e)
+            }
         }
     }
 }
@@ -1738,7 +1762,7 @@ async fn run_review_tool(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai::proxy::QuotaManager;
+    use crate::ai::quota::QuotaManager;
     use crate::ai::{AiRequest, AiResponse, ProviderCapabilities};
     use crate::db::Database;
     use crate::settings::Settings;

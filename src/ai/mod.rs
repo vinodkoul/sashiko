@@ -213,6 +213,7 @@ pub mod cache;
 pub mod claude;
 pub mod gemini;
 pub mod proxy;
+pub mod quota;
 pub mod token_budget;
 pub mod truncator;
 
