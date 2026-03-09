@@ -114,7 +114,7 @@ FINAL UNADDRESSED COMMENTS: NUMBER
 Original reviewer expected responses to new patch
 ```
 
-If unaddressed comments exist, include lore links in the `review_inline` field:
+If unaddressed comments exist, include lore links in review-inline.txt:
 ```
 https://lore.kernel.org/bpf/<message-id>/
 ```

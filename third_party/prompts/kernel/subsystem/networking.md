@@ -172,9 +172,6 @@ The SNMP stat macros in `include/net/snmp.h` handle this:
   `local_bh_disable()` wrapper and must only be called from BH-disabled
   or process context that cannot be preempted by BH
 
-Driver-specific statistics should follow the guidelines in
-`Documentation/networking/statistics.rst`.
-
 ## Packet Type Constants
 
 Misinterpreting `skb->pkt_type` causes packets to be delivered to the
@@ -190,45 +187,6 @@ wrong handler or silently dropped. The field classifies received packets:
 | `PACKET_LOOPBACK` | 5 | MC/BRD frame looped back |
 
 These are defined in `include/uapi/linux/if_packet.h`.
-
-## Special Port Constants
-
-Failing to exclude the `VMADDR_PORT_ANY` sentinel from port iteration
-causes the vsock subsystem to bind to the wildcard port, breaking port
-allocation.
-
-`VMADDR_PORT_ANY` is defined as `-1U` (0xFFFFFFFF) in
-`include/uapi/linux/vm_sockets.h` for the vsock subsystem. Port allocation
-logic that iterates or wraps around port ranges must explicitly exclude this
-sentinel value to avoid binding to the wildcard port.
-
-## TCP Receive Buffer and Window Clamping
-
-Calling `tcp_clamp_window()` when the receive queue is empty
-(`sk_rmem_alloc == 0`) sets `sk_rcvbuf` to zero, permanently stalling the
-connection because `tcp_can_ingest()` rejects all incoming packets.
-
-`tcp_clamp_window()` (in `net/ipv4/tcp_input.c`) adjusts the receive
-buffer based on current memory usage via
-`min(atomic_read(&sk->sk_rmem_alloc), rmem2)`. With `sk_rmem_alloc == 0`,
-this produces a zero `sk_rcvbuf`. Once `sk_rcvbuf` is zero,
-`tcp_can_ingest()` (which checks `rmem + skb->len <= sk->sk_rcvbuf`)
-rejects all packets and the receiver cannot advertise a non-zero window.
-
-`tcp_prune_queue()` guards against this by returning early when
-`sk_rmem_alloc` is zero:
-
-```c
-if (!atomic_read(&sk->sk_rmem_alloc))
-    return -1;  /* nothing to prune, avoid clamping empty queue */
-```
-
-Any code path that can reach `tcp_clamp_window()` must preserve this
-invariant: `tcp_clamp_window()` must not be called when
-`sk_rmem_alloc == 0`. Patches that change receive buffer checks
-(`sk_rcvbuf`, `sk_rmem_alloc` comparisons) or introduce helper functions
-that replace such checks can break this invariant if the new code allows
-reaching `tcp_clamp_window()` with empty queues where the old code did not.
 
 ## SKB Control Block Lifetime
 
@@ -276,86 +234,40 @@ void my_destructor(struct sk_buff *skb) {
 enqueue/dequeue) where the data is consumed before the SKB moves to the
 next layer.
 
-## PHY Initialization Completeness
+## UAPI Structure Alignment Inheritance
 
-Incomplete PHY `config_init` functions cause the PHY to malfunction in
-certain interface modes (RGMII, MII, GMII, MII-Lite). The PHY may fail to
-link, operate at reduced speeds, or exhibit data corruption. Hardware
-strapping alone is often insufficient -- software must also configure
-mode-selection registers.
+Adding fields with wider alignment requirements to a structure that embeds
+a narrowly-aligned UAPI struct causes misaligned memory accesses. On some
+architectures this traps; on others it silently degrades performance (up to
+50% throughput loss for hot-path headers) without functional failures,
+making the bug difficult to detect through testing.
 
-PHY `config_init` functions must configure mode-selection registers based on
-`phydev->interface`. Use `phy_interface_is_rgmii(phydev)`
-(`include/linux/phy.h`) to detect RGMII mode variants (RGMII, RGMII-ID,
-RGMII-RXID, RGMII-TXID).
+UAPI structures use only the types present in their definition to determine
+alignment. When a structure embeds another, the outer structure inherits
+the inner structure's alignment, not the alignment of any new fields added
+after it.
 
-For Broadcom PHYs: the RGMII Enable bit
-(`MII_BCM54XX_AUXCTL_SHDWSEL_MISC_RGMII_EN`, defined in
-`include/linux/brcmphy.h`) must be set via software when RGMII mode is
-configured, even if the hardware strapping indicates RGMII. Use
-`bcm54xx_auxctl_write()` (`drivers/net/phy/bcm-phy-lib.c`) to configure
-shadow register 0x07.
+The virtio network headers illustrate this pattern. `virtio_net_hdr_v1`
+(`include/uapi/linux/virtio_net.h`) contains only `__u8` and `__virtio16`
+fields, giving it 2-byte alignment. The embedding chain
+`virtio_net_hdr_v1` -> `virtio_net_hdr_v1_hash` ->
+`virtio_net_hdr_v1_hash_tunnel` preserves 2-byte alignment throughout by
+using only `__le16` fields after the embedded struct. A `__le32` or `__u32`
+field placed after the 12-byte `virtio_net_hdr_v1` would sit at a 2-byte
+aligned offset, violating the field's natural 4-byte alignment requirement.
 
-RGMII modes require TX/RX delay configuration based on the specific
-interface mode variant:
+When extending UAPI structures that embed other structures:
 
-- `PHY_INTERFACE_MODE_RGMII`: no internal delays
-- `PHY_INTERFACE_MODE_RGMII_ID`: internal delays on both TX and RX
-- `PHY_INTERFACE_MODE_RGMII_RXID`: internal delay on RX only
-- `PHY_INTERFACE_MODE_RGMII_TXID`: internal delay on TX only
-
-The skew enable bit (`MII_BCM54XX_AUXCTL_SHDWSEL_MISC_RGMII_SKEW_EN`, defined in
-`include/linux/brcmphy.h`) controls whether internal delays are applied.
-
-A `config_init` function that configures features (LEDs, clocks, special
-modes) but omits interface mode register writes is likely incomplete if the
-PHY supports multiple interface modes. Compare against existing PHYs in the
-same driver family to verify all required initialization steps are present.
-
-## Virtio Network Header Alignment
-
-Misaligned fields in virtio_net header structures cause severe performance
-degradation (up to 50% throughput loss) without any functional failures or
-crashes, making this bug class difficult to detect through testing.
-
-`virtio_net_hdr_v1` (`include/uapi/linux/virtio_net.h`) is 12 bytes with
-2-byte alignment. The structure contains `__u8`, `__virtio16` (which is
-`__u16 __bitwise`), and `__le16` fields. All structures that embed
-`virtio_net_hdr_v1` inherit this 2-byte alignment.
-
-Adding `__le32` or `__u32` fields after an embedded `virtio_net_hdr_v1`
-places the 4-byte field at a 2-byte aligned offset, causing misaligned
-memory accesses:
-
-```c
-// WRONG: hash_value at offset 12 (2-byte aligned, needs 4-byte)
-struct virtio_net_hdr_v1_hash {
-    struct virtio_net_hdr_v1 hdr;  // 12 bytes, 2-byte aligned
-    __le32 hash_value;              // offset 12, misaligned!
-    __le16 hash_report;
-    __le16 padding;
-};
-
-// CORRECT: split 4-byte field into two 2-byte fields
-struct virtio_net_hdr_v1_hash {
-    struct virtio_net_hdr_v1 hdr;
-    __le16 hash_value_lo;           // offset 12, 2-byte aligned
-    __le16 hash_value_hi;           // offset 14, 2-byte aligned
-    __le16 hash_report;
-    __le16 padding;
-};
-```
-
-Use `BUILD_BUG_ON` assertions when casting between header formats to catch
-alignment mismatches at compile time:
-
-```c
-BUILD_BUG_ON(__alignof__(struct_a) != __alignof__(struct_b));
-```
-
-For new fields added after an embedded struct, the field offset must satisfy
-`offset % sizeof(field_type) == 0`. The alignment is inherited from the
-embedded struct, not the desired field type.
+- Check the embedded struct's alignment (`__alignof__`) -- new fields must
+  not require wider alignment than the embedding struct provides.
+- If a wider value is needed, split it into smaller fields that match the
+  inherited alignment (e.g., two `__le16` fields instead of one `__le32`).
+- Use `BUILD_BUG_ON(__alignof__(outer) != __alignof__(inner))` to catch
+  alignment mismatches at compile time when casting between related header
+  formats. See `xmit_skb()` in `drivers/net/virtio_net.c` for an example.
+- Verify that `offset % sizeof(field_type) == 0` for every new field,
+  where offset accounts for the inherited alignment, not the desired field
+  type.
 
 ## XFRM/IPsec Packet Family Determination
 
@@ -402,6 +314,103 @@ Inconsistent family sources within a single file or subsystem suggest bugs.
 Be particularly suspicious of `x->props.family` when accessing inner packet
 properties in tunnel mode.
 
+## Ethtool Driver Statistics vs Standard Stats
+
+Adding statistics to `ethtool -S` that duplicate counters for which a
+standard kernel uAPI already exists creates confusion, leads to huge
+ethtool -S lists, and adds maintenance burden. Reviewers routinely
+reject such patches.
+
+- **Stats that have a standard uAPI must not be duplicated in `ethtool -S`.**
+  The `ethtool -S` interface (`get_ethtool_stats()` / `get_sset_count()` /
+  `get_strings()`) is for driver-private statistics only — counters that are
+  specific to the hardware or driver and have no standard representation.
+- Standard uAPIs exist for common SW-maintained and standards-defined HW
+  counters. Categories with standard interfaces include:
+  - Network device stats (`struct rtnl_link_stats64` via `ip -s link show`)
+  - Per-queue statistics (via netlink)
+  - Page pool statistics (via netlink, accessible through `ynl` tooling)
+  - Ethtool statistics (for which there is a dedicated callback in
+    `struct ethtool_ops`)
+  - Other counters exposed through standardized netlink attributes
+- A stat does not need to be currently reported by the driver to count as
+  a duplicate — if a standard uAPI exists for that category of counter,
+  the driver must use the standard interface, not `ethtool -S`.
+- When a driver wants to expose a statistic that fits an existing standard
+  category, it should implement the appropriate standard interface (e.g.,
+  `ndo_get_stats64`) rather than adding a private ethtool string.
+- `Documentation/networking/statistics.rst` documents the statistics
+  hierarchy and which interfaces to use.
+
+**REPORT as bugs**: Driver patches that add **new** counters to `ethtool -S`
+for values that have a standard uAPI — whether or not the driver currently
+reports them through that standard interface. Pre-existing `ethtool -S` stats
+that predate the standard uAPI are not bugs in new patches (migrating them is
+a separate cleanup).
+
+## Ad-hoc Synchronization with Flags and Atomics
+
+Driver code that uses atomic variables, bit flags, or boolean fields as
+substitutes for real locks or RCU almost always contains races. These
+homebrew schemes provide no actual synchronization guarantees and are
+invisible to lockdep, so the bugs they introduce go undetected by
+standard kernel debugging tools.
+
+Common broken patterns:
+
+- **Atomic/flag as gate guard**: reading an atomic or flag to decide whether
+  to proceed, then operating on shared data without holding a lock. The
+  flag's value can change immediately after the read, so the "protection"
+  is illusory.
+  ```c
+  // WRONG: intr_sem can change right after the read
+  if (atomic_read(&priv->intr_sem) != 0)
+      return;
+  // ... operates on shared state with no actual lock held
+  ```
+
+- **Bit flags as reader/writer protocol**: using `set_bit()` /
+  `test_bit()` / `clear_bit()` to coordinate access between readers and
+  a teardown path. Multiple concurrent readers can enter, one clears the
+  bit while another is still mid-operation, and the teardown path frees
+  memory that the remaining reader is still accessing.
+  ```c
+  // WRONG: concurrent readers race on the bit
+  set_bit(STATE_READ_STATS, &priv->state);
+  if (!test_bit(STATE_OPEN, &priv->state)) {
+      clear_bit(STATE_READ_STATS, &priv->state);
+      return;
+  }
+  // ... reads from shared data that close path may free
+  clear_bit(STATE_READ_STATS, &priv->state);
+  ```
+
+- **Retry/poll loops on flags**: spinning on a flag waiting for another
+  context to clear it, reimplementing a spinlock without the fairness,
+  deadlock detection, or memory ordering guarantees.
+
+- **Trylock loops to avoid deadlock**: using `mutex_trylock()` or
+  `spin_trylock()` in a loop or repeated invocation to avoid a lock
+  ordering issue is a sign that the locking design is wrong. Trylock is
+  only acceptable in narrow cases — for example, a work item that calls
+  `mutex_trylock()` and on failure reschedules itself (via
+  `schedule_work()` / `schedule_delayed_work()`) so the work runs again
+  later. Open-coded retry loops around trylock, or trylock with fallback
+  to "skip the work entirely", are almost always bugs.
+
+The correct alternatives depend on the access pattern:
+
+- Reader-heavy paths (e.g., `ndo_get_stats64`): use RCU
+- Mutual exclusion with sleep: use a `mutex`
+- Mutual exclusion in atomic context: use a `spinlock_t`
+- Preventing concurrent execution of a timer or work: use
+  `del_timer_sync()` / `cancel_work_sync()`
+
+**REPORT as bugs**: any pattern where a flag, atomic variable, or bit
+operation appears to guard a section of code rather than express state —
+i.e., where the flag is set on entry and cleared on exit of a code region
+to prevent concurrent access, instead of using a proper lock or RCU.
+
 ## Quick Checks
 
 - Validate packet lengths before `skb_put()` / `skb_push()` / `skb_pull()`
@@ -412,3 +421,5 @@ properties in tunnel mode.
 - Use BH-safe stat update macros for per-CPU network counters
 - Do not access an SKB after handing it to another subsystem
 - Do not store destructor-needed data in `skb->cb`
+- **Ethtool -S stat duplication**: check whether any new `ethtool -S` counters cover values for which a standard uAPI exists (rtnl_link_stats64, page pool stats, per-queue stats via netlink), regardless of whether the driver currently uses that standard interface
+- **Flags used as locks**: flag/atomic/bit set-on-entry clear-on-exit patterns that guard code sections are ad-hoc locks; use real locks or RCU instead
