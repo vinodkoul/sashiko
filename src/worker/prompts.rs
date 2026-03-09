@@ -49,19 +49,30 @@ fn validate_inline_format(content: &str) -> std::result::Result<(), String> {
     if !content.lines().any(|l| l.trim_start().starts_with(">")) {
         return Err("The output does not appear to quote any code or context using '>'. Please follow the quoting style in `inline-template.md`.".to_string());
     }
-    let has_commit_header = content.lines().take(20).any(|l| l.trim_start().to_lowercase().starts_with("commit "));
+    let has_commit_header = content
+        .lines()
+        .take(20)
+        .any(|l| l.trim_start().to_lowercase().starts_with("commit "));
     if !has_commit_header {
         return Err("The output is missing the 'commit <hash>' header. Please start with the commit details (Commit, Author, Subject) as per `inline-template.md`.".to_string());
     }
-    let has_author_header = content.lines().take(20).any(|l| l.trim_start().to_lowercase().starts_with("author:"));
+    let has_author_header = content
+        .lines()
+        .take(20)
+        .any(|l| l.trim_start().to_lowercase().starts_with("author:"));
     if !has_author_header {
         return Err("The output is missing the 'Author: <name>' header. Please start with the commit details (Commit, Author, Subject) as per `inline-template.md`.".to_string());
     }
     let has_comments = content.lines().any(|l| {
         let trimmed = l.trim();
-        if trimmed.is_empty() || trimmed.starts_with(">") { return false; }
+        if trimmed.is_empty() || trimmed.starts_with(">") {
+            return false;
+        }
         let lower = trimmed.to_lowercase();
-        !lower.starts_with("commit ") && !lower.starts_with("author:") && !lower.starts_with("date:") && !lower.starts_with("link:")
+        !lower.starts_with("commit ")
+            && !lower.starts_with("author:")
+            && !lower.starts_with("date:")
+            && !lower.starts_with("link:")
     });
     if !has_comments {
         return Err("The output appears to lack any comments or summary. You must include a summary and interspersed comments explaining the findings.".to_string());
@@ -208,7 +219,8 @@ You are the lead reviewer consolidating feedback from multiple specialized analy
 2. Validate each concern, prove the provided reasoning. Report all valid concerns as findings. If necessarily, use tools to gather additional material.
 3. CRITICAL RULE: To discard a concern as a false positive, you MUST find concrete proof in the source code (e.g., a check in the caller function, a subsystem guarantee, or an initialization you can actually see) that explicitly invalidates the concern's reasoning. Do not dismiss a concern simply because you assume the original author knew what they were doing or that 'some caller probably handles it'. If you cannot find definitive proof that the concern is a false positive, it must be reported as a finding.
 4. If context from subsequent patches in the series is provided, check if the concern is fixed later in the series. If so, discard it. But don't trust any promises in the commit message if they can't be verified (e.g. something will be fixed by subsequent patches in the series - if you can't prove that it's indeed fixed, report it as a bug).
-5. Assign a severity (low, medium, high, critical) to each remaining valid finding and explain the reasoning. Be rigorous in filtering out verifiable noise, but accurately report real logic flaws and edge cases."
+5. When referring to other patches within this series in your explanation, DO NOT use git hashes (they are ephemeral/unstable). Instead, refer to them by their patch subject (e.g., 'commit \"mm: fix allocation\"'). Existing historical commits in the tree should still be referenced by their standard hash.
+6. Assign a severity (low, medium, high, critical) to each remaining valid finding and explain the reasoning. Be rigorous in filtering out verifiable noise, but accurately report real logic flaws and edge cases."
             }
             9 => {
                 "# Stage 9. LKML-friendly report generation
@@ -343,6 +355,7 @@ pub struct Worker {
     global_history: Vec<AiMessage>,
     max_interactions: usize,
     temperature: f32,
+    series_range: Option<String>,
 }
 
 impl Worker {
@@ -359,6 +372,7 @@ impl Worker {
             global_history: Vec::new(),
             max_interactions: config.max_interactions,
             temperature: config.temperature,
+            series_range: config.series_range,
         }
     }
 
@@ -501,7 +515,35 @@ Example:
             let (stage_prompt, clean_stage_prompt) = self.prompts.get_stage_prompt(stage).await?;
             let system_prompt = shared_context.clone();
             let clean_system_prompt = clean_shared_context.clone();
-            let full_series_context = "Full series context placeholder";
+
+            let full_series_context = if let Some(range) = &self.series_range {
+                let cmd_output = std::process::Command::new("git")
+                    .current_dir(self.tools.get_worktree_path())
+                    .args(["--no-pager", "log", "--reverse", "--format=%s", range])
+                    .output();
+
+                match cmd_output {
+                    Ok(out) if out.status.success() => {
+                        let subjects = String::from_utf8_lossy(&out.stdout).to_string();
+                        format!("Series Range: {}\n\nPatches in series:\n{}", range, subjects)
+                    }
+                    Ok(out) => {
+                        warn!(
+                            "git log failed for range {}: {}",
+                            range,
+                            String::from_utf8_lossy(&out.stderr)
+                        );
+                        "Failed to retrieve full series context (git log error).".to_string()
+                    }
+                    Err(e) => {
+                        warn!("git command failed: {}", e);
+                        "Failed to retrieve full series context (git execution error).".to_string()
+                    }
+                }
+            } else {
+                "Not applicable (single patch or last patch in series).".to_string()
+            };
+
             let aggregated_concerns_json =
                 serde_json::to_string_pretty(&all_concerns).unwrap_or_default();
             let user_prompt = format!(
