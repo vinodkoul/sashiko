@@ -557,31 +557,57 @@ impl StdioGeminiClient {
 // --- Translation Helpers ---
 
 fn translate_ai_request(request: AiRequest) -> Result<GenerateContentRequest> {
-    let mut contents = Vec::new();
+    let mut contents: Vec<Content> = Vec::new();
     let mut system_instruction = None;
+    let has_cache = request.preloaded_context.is_some();
 
     for msg in request.messages {
         match msg.role {
             AiRole::System => {
                 if let Some(content) = msg.content {
-                    system_instruction = Some(Content {
-                        role: "user".to_string(), // role is ignored for system_instruction but required by struct
-                        parts: vec![Part::Text {
+                    if has_cache {
+                        // When using cache, Gemini API prohibits system_instruction.
+                        // We must send it as a 'user' message instead.
+                        let part = Part::Text {
                             text: content,
                             thought_signature: None,
                             thought: false,
-                        }],
-                    });
+                        };
+                        if let Some(last) = contents.last_mut()
+                            && last.role == "user" {
+                                last.parts.push(part);
+                                continue;
+                            }
+                        contents.push(Content {
+                            role: "user".to_string(),
+                            parts: vec![part],
+                        });
+                    } else {
+                        system_instruction = Some(Content {
+                            role: "user".to_string(), // role is ignored for system_instruction but required by struct
+                            parts: vec![Part::Text {
+                                text: content,
+                                thought_signature: None,
+                                thought: false,
+                            }],
+                        });
+                    }
                 }
             }
             AiRole::User => {
+                let part = Part::Text {
+                    text: msg.content.unwrap_or_default(),
+                    thought_signature: None,
+                    thought: false,
+                };
+                if let Some(last) = contents.last_mut()
+                    && last.role == "user" {
+                        last.parts.push(part);
+                        continue;
+                    }
                 contents.push(Content {
                     role: "user".to_string(),
-                    parts: vec![Part::Text {
-                        text: msg.content.unwrap_or_default(),
-                        thought_signature: None,
-                        thought: false,
-                    }],
+                    parts: vec![part],
                 });
             }
             AiRole::Assistant => {
