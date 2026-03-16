@@ -97,7 +97,8 @@ impl QuotaManager {
         *count_guard += 1;
         let count = *count_guard;
 
-        let backoff_secs = (5.0 * (2.0_f64.powi((count - 1) as i32))).min(300.0);
+        // Exponential backoff: 1s, 2s, 4s, 8s... capped at 60s
+        let backoff_secs = (1.0 * (2.0_f64.powi((count - 1) as i32))).min(60.0);
         let backoff = Duration::from_secs_f64(backoff_secs);
 
         let mut block_guard = self.blocked_until.lock().await;
