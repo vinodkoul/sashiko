@@ -15,16 +15,30 @@ mute_all = false
 # A list of static email addresses that should always receive a copy (CC'd).
 cc = []
 
-# ==============================================================================
-# Subsystem overrides example
-# ==============================================================================
-# [subsystems.example]
-# # The mailing list addresses that identify this subsystem
-# lists = ["example-list@vger.kernel.org"]
-# 
-# # Override defaults for this subsystem
-# reply_all = true
-# reply_to_author = true
-# cc_maintainers = true
-# mute_all = false
-# cc = ["archive-bot@example.com"]
+[subsystems.bpf]
+lists = ["bpf@vger.kernel.org"]
+reply_all = false
+reply_to_author = true
+cc_maintainers = false
+cc = ["bpf@vger.kernel.org"]
+
+[subsystems.hwmon]
+lists = ["linux-hwmon@vger.kernel.org"]
+reply_all = false
+reply_to_author = true
+cc_maintainers = false
+cc = ["linux-hwmon@vger.kernel.org"]
+
+[subsystems.perf]
+lists = ["linux-perf-users@vger.kernel.org"]
+reply_all = false
+reply_to_author = true
+cc_maintainers = false
+cc = ["linux-perf-users@vger.kernel.org"]
+
+[subsystems.damon]
+lists = ["damon@lists.linux.dev"]
+reply_all = false
+reply_to_author = true
+cc_maintainers = false
+cc = ["damon@lists.linux.dev"]
