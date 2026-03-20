@@ -47,7 +47,6 @@ struct ReviewContext {
 
 enum PatchResult {
     Success,
-    ApplyFailed,
     ReviewFailed,
 }
 
@@ -1053,26 +1052,6 @@ impl Reviewer {
 
                     if target_applied {
                         if let Some(error_msg) = json_output["error"].as_str() {
-                            if error_msg == "Patch application failed" {
-                                error!(
-                                    "Patch application failed for ps={} idx={}",
-                                    patchset_id, index
-                                );
-                                let _ = ctx
-                                    .db
-                                    .complete_review(
-                                        review_id,
-                                        ReviewStatus::FailedToApply.as_str(),
-                                        error_msg,
-                                        None,
-                                        interaction_id.as_deref(),
-                                        None,
-                                        logs_str.as_deref(),
-                                    )
-                                    .await;
-                                return Ok(PatchResult::ApplyFailed);
-                            }
-
                             error!(
                                 "Review tool returned error for ps={} idx={}: {}",
                                 patchset_id, index, error_msg
@@ -1228,15 +1207,15 @@ impl Reviewer {
                             return Ok(PatchResult::ReviewFailed);
                         }
                     } else {
-                        // Apply failed in tool
+                        // Tool failed to process or missing patches array
                         let error_msg = json_output["error"]
                             .as_str()
-                            .unwrap_or("Patch application failed");
+                            .unwrap_or("Tool failed to return patch status");
                         let _ = ctx
                             .db
                             .complete_review(
                                 review_id,
-                                ReviewStatus::FailedToApply.as_str(),
+                                ReviewStatus::Failed.as_str(),
                                 error_msg,
                                 None,
                                 interaction_id.as_deref(),
@@ -1244,7 +1223,12 @@ impl Reviewer {
                                 logs_str.as_deref(),
                             )
                             .await;
-                        return Ok(PatchResult::ApplyFailed);
+                        if retries < max_retries {
+                            retries += 1;
+                            continue;
+                        } else {
+                            return Ok(PatchResult::ReviewFailed);
+                        }
                     }
                 }
                 Err(e) => {
@@ -1622,36 +1606,8 @@ async fn run_review_tool(
                     settings.review.timeout_seconds
                 );
                 let _ = child.kill().await;
-
-                if let Some(idx) = review_index
-                    && let Err(e2) = db
-                        .update_patch_application_status(
-                            patchset_id,
-                            idx,
-                            "error",
-                            Some("Review tool timed out"),
-                        )
-                        .await
-                {
-                    error!(
-                        "Failed to update patch status for ps={} idx={}: {}",
-                        patchset_id, idx, e2
-                    );
-                }
-                Err(e)
-            } else {
-                if let Some(idx) = review_index {
-                    let _ = db
-                        .update_patch_application_status(
-                            patchset_id,
-                            idx,
-                            "error",
-                            Some(&e.to_string()),
-                        )
-                        .await;
-                }
-                Err(e)
             }
+            Err(e)
         }
     }
 }
