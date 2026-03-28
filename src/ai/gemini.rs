@@ -840,7 +840,7 @@ mod tests {
         let schema = json!({
             "type": "OBJECT",
             "properties": {
-                "score": {"type": "number"}
+                "score": {"type": "NUMBER"}
             }
         });
         let request = AiRequest {
@@ -1007,10 +1007,7 @@ mod tests {
 
         assert_eq!(normalized["type"], "OBJECT");
         assert_eq!(normalized["properties"]["files"]["type"], "ARRAY");
-        assert_eq!(
-            normalized["properties"]["files"]["items"]["type"],
-            "OBJECT"
-        );
+        assert_eq!(normalized["properties"]["files"]["items"]["type"], "OBJECT");
         assert_eq!(
             normalized["properties"]["files"]["items"]["properties"]["path"]["type"],
             "STRING"

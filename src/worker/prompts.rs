@@ -550,13 +550,99 @@ impl Worker {
             )
         };
 
+        let mut planning_selected_stages: Option<Vec<u8>> = None;
+        if self.stages.is_none() {
+            let schema = serde_json::json!({
+                "type": "OBJECT",
+                "properties": {
+                    "relevant_stages": {
+                        "type": "ARRAY",
+                        "items": { "type": "INTEGER" },
+                        "description": "Array of stage numbers from 4, 5, 6, 7 that are relevant to this patch. Err on the side of inclusion if unsure."
+                    }
+                },
+                "required": ["relevant_stages"]
+            });
+
+            let planning_prompt = r#"Analyze the provided patch and determine which of the following review stages are relevant and should be executed:
+- Stage 4: Resource management
+- Stage 5: Locking and synchronization
+- Stage 6: Security audit
+- Stage 7: Hardware engineer's review
+
+Return ONLY a JSON object containing an array of integers representing the relevant stages (e.g., [4, 5, 6, 7]).
+CRITICAL: Always err on the side of running more stages. If you are not absolutely sure, include the stage. If the patch is a trivial typo fix, you may omit some stages. Stages 1, 2, and 3 are always run and should not be included in your answer."#;
+
+            let req = AiRequest {
+                system: None,
+                messages: vec![AiMessage {
+                    role: crate::ai::AiRole::User,
+                    content: Some(format!("{}\n\n{}", shared_context, planning_prompt)),
+                    thought: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                }],
+                tools: None,
+                temperature: Some(0.0),
+                response_format: Some(AiResponseFormat::Json {
+                    schema: Some(schema),
+                }),
+                context_tag: self
+                    .context_tag
+                    .as_ref()
+                    .map(|prefix| format!("{} s:p] ", &prefix[..prefix.len() - 2])),
+            };
+
+            info!("Running planning pre-phase");
+            match self.provider.generate_content(req).await {
+                Ok(resp) => {
+                    if let Some(usage) = &resp.usage {
+                        total_tokens_in += usage.prompt_tokens as u32;
+                        total_tokens_out += usage.completion_tokens as u32;
+                        total_tokens_cached += usage.cached_tokens.unwrap_or(0) as u32;
+                    }
+                    if let Some(content) = resp.content {
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                            if let Some(arr) = val.get("relevant_stages").and_then(|v| v.as_array())
+                            {
+                                let mut stages = vec![1, 2, 3];
+                                for v in arr {
+                                    if let Some(n) = v.as_u64()
+                                        && (4..=7).contains(&n) {
+                                            stages.push(n as u8);
+                                        }
+                                }
+                                info!("Planning phase selected stages: {:?}", stages);
+                                planning_selected_stages = Some(stages);
+                            } else {
+                                warn!(
+                                    "Planning phase JSON did not contain 'relevant_stages' array"
+                                );
+                            }
+                        } else {
+                            warn!("Planning phase JSON parse error");
+                        }
+                    } else {
+                        warn!("Planning phase returned no content");
+                    }
+                }
+                Err(e) => {
+                    warn!("Planning phase failed: {}", e);
+                }
+            }
+        }
+
         // Stages 1-7
         for stage in 1..=7 {
-            if let Some(ref selected_stages) = self.stages
-                && !selected_stages.contains(&stage)
-            {
-                continue;
-            }
+            if let Some(ref selected_stages) = self.stages {
+                if !selected_stages.contains(&stage) {
+                    continue;
+                }
+            } else if let Some(ref planned_stages) = planning_selected_stages
+                && !planned_stages.contains(&stage) {
+                    info!("Skipping stage {} based on planning phase", stage);
+                    continue;
+                }
 
             info!("Running Stage {}", stage);
             let (stage_prompt, clean_stage_prompt) = self.prompts.get_stage_prompt(stage).await?;
