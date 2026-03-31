@@ -1194,8 +1194,8 @@ Example:
                 }
                 local_history.extend(tool_responses.clone());
                 self.global_history.extend(tool_responses);
-            } else if let Some(content) = resp.content {
-                return Ok((content, t_in, t_out, t_cached));
+            } else if resp.content.is_some() || resp.thought.is_some() {
+                return Ok((resp.content.unwrap_or_default(), t_in, t_out, t_cached));
             } else {
                 return Err(anyhow::anyhow!("No content or tool calls from AI"));
             }

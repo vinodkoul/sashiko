@@ -117,8 +117,15 @@ pub struct GenerationConfig {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PromptFeedback {
+    pub block_reason: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GenerateContentResponse {
     pub candidates: Option<Vec<Candidate>>,
+    pub prompt_feedback: Option<PromptFeedback>,
     pub usage_metadata: Option<UsageMetadata>,
 }
 
@@ -604,11 +611,37 @@ fn normalize_schema(mut schema: Value) -> Value {
 }
 
 fn translate_ai_response(resp: GenerateContentResponse) -> Result<AiResponse> {
+    if let Some(reason) = resp.prompt_feedback.and_then(|f| f.block_reason) {
+        return Err(anyhow::anyhow!(
+            "Gemini request blocked by prompt feedback (reason: {})",
+            reason
+        ));
+    }
+
     let candidate = resp
         .candidates
         .as_ref()
         .and_then(|c| c.first())
         .ok_or_else(|| anyhow::anyhow!("No candidates returned from Gemini"))?;
+
+    if let Some(finish_reason) = &candidate.finish_reason {
+        if finish_reason == "SAFETY"
+            || finish_reason == "RECITATION"
+            || finish_reason == "OTHER"
+            || finish_reason == "BLOCKLIST"
+            || finish_reason == "PROHIBITED_CONTENT"
+        {
+            return Err(anyhow::anyhow!(
+                "Gemini candidate blocked (finish reason: {})",
+                finish_reason
+            ));
+        } else if finish_reason != "STOP" && finish_reason != "MAX_TOKENS" {
+            tracing::warn!(
+                "Gemini candidate finished with unexpected reason: {}",
+                finish_reason
+            );
+        }
+    }
 
     let mut content = String::new();
     let mut thought = String::new();
@@ -833,6 +866,7 @@ mod tests {
                 },
                 finish_reason: Some("STOP".to_string()),
             }]),
+            prompt_feedback: None,
             usage_metadata: Some(UsageMetadata {
                 prompt_token_count: 10,
                 candidates_token_count: Some(20),
