@@ -963,6 +963,7 @@ Example:
             // it verbatim, so track the active prompt separately.
             let mut active_user_prompt = user_prompt.clone();
             let mut active_clean_user_prompt = clean_user_prompt.clone();
+            let mut free_form_mode = false;
             while retries < max_retries {
                 match self
                     .run_ai_stage_raw(
@@ -978,34 +979,54 @@ Example:
                         total_tokens_in += t_in;
                         total_tokens_out += t_out;
                         total_tokens_cached += t_cached;
-                        match validate_inline_format(&result_text) {
-                            Ok(_) => {
-                                review_inline_text = result_text;
-                                break;
-                            }
-                            Err(violation) => {
-                                tracing::warn!(
-                                    "Stage 9 format validation failed (attempt {}/{}): {}. Retrying with augmented prompt.",
-                                    retries + 1,
-                                    max_retries,
-                                    violation
-                                );
-                                let reminder = format!(
-                                    "\n\nPrevious attempt was rejected: {violation}. Strictly follow the formatting rules."
-                                );
-                                active_user_prompt = format!("{}{}", user_prompt, reminder);
-                                active_clean_user_prompt =
-                                    format!("{}{}", clean_user_prompt, reminder);
+                        if free_form_mode {
+                            review_inline_text = result_text;
+                            break;
+                        } else {
+                            match validate_inline_format(&result_text) {
+                                Ok(_) => {
+                                    review_inline_text = result_text;
+                                    break;
+                                }
+                                Err(violation) => {
+                                    tracing::warn!(
+                                        "Stage 9 format validation failed (attempt {}/{}): {}. Retrying with augmented prompt.",
+                                        retries + 1,
+                                        max_retries,
+                                        violation
+                                    );
+                                    let reminder = format!(
+                                        "\n\nPrevious attempt was rejected: {violation}. Strictly follow the formatting rules."
+                                    );
+                                    active_user_prompt = format!("{}{}", user_prompt, reminder);
+                                    active_clean_user_prompt =
+                                        format!("{}{}", clean_user_prompt, reminder);
+                                }
                             }
                         }
                     }
                     Err(e) => {
+                        let err_str = e.to_string();
                         tracing::warn!(
                             "Stage 9 failed (attempt {}/{}): {}",
                             retries + 1,
                             max_retries,
-                            e
+                            err_str
                         );
+                        if err_str.contains("RECITATION") && !free_form_mode {
+                            tracing::warn!(
+                                "Recitation error detected. Falling back to free-form mode."
+                            );
+                            free_form_mode = true;
+                            let fallback_reminder = "\n\nCRITICAL: The previous attempt failed due to a RECITATION policy violation. Do NOT quote the original patch code at all. Instead, provide a free-form summary of the findings. Start your report with a note explaining that the format is altered due to recitation restrictions. Do not use the inline quoting style `>`.";
+                            active_user_prompt = format!("{}{}", user_prompt, fallback_reminder);
+                            active_clean_user_prompt =
+                                format!("{}{}", clean_user_prompt, fallback_reminder);
+                            // Optionally don't penalize the retry count for the first recitation error
+                            if retries + 1 == max_retries {
+                                retries -= 1;
+                            }
+                        }
                     }
                 }
                 retries += 1;
