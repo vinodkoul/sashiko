@@ -237,6 +237,13 @@ development. To get the most out of it:
 Once the daemon is running, you can access the Web UI, the daemon will print the
 URL to access it from localhost.
 
+## Communication
+
+We welcome contributions and feedback through two main channels:
+
+*   **GitHub:** Feel free to use GitHub issues for bug reports and feature requests, and submit Pull Requests for code changes.
+*   **Mailing List:** Join us at `sashiko@lore.kernel.org` for Sashiko-related announcements and broader AI-review discussions, including general feedback, architectural ideas, and specific prompt discussions.
+
 ## Contributing
 
 This project uses the Developer Certificate of Origin (DCO). All contributions must include a `Signed-off-by` line to certify that you wrote the code or have the right to contribute it.
