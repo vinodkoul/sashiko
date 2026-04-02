@@ -4,6 +4,9 @@
 
 - Code must follow guildelines in `Documentation/hwmon/submitting-patches.rst`.
 
+- enum values in this subsystem are traditionally lowercase.
+  Uppercase is permitted, but not mandatory.
+
 ## Arithmetic
 
 - Check for overflows and underflows in arithmetc calculations
