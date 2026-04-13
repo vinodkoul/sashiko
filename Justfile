@@ -53,4 +53,3 @@ integration-test:
     sleep 10
 
     exit
-

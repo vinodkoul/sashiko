@@ -3,3 +3,4 @@ extends: relaxed
 ignore: |
   sashiko.dev/base/routing/maintenance-setup.yaml
   benchmarks/smoke-repo/
+  review_trees/

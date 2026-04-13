@@ -14,6 +14,22 @@ You're an expert Software Engineer with deep knowledge of Rust, Distributed Syst
 - If not sure, ask the user, don't proceed without confidence. Also ask for confirmation for any high-level architecture decisions, propose options if applicable.
 - Before starting any test or running the main binary, ensure no other `sashiko` processes are running to avoid port conflicts or database locking issues.
 
+# Development Workflow
+
+## 1. Prerequisites
+Install the following tools to manage the development lifecycle:
+- **just:** Command runner for project tasks. [Installation Guide](https://github.com/casey/just#installation)
+- **yamllint:** Linter for YAML files. [Installation Guide](https://github.com/adrienverge/yamllint#installation)
+
+## 2. Common Commands
+Use `just` to run common development tasks:
+- `just lint`: Run all linters (clippy, fmt, yamllint).
+- `just test`: Run unit tests.
+- `just integration-test`: Run the full integration smoke tests (starts server, runs benchmark, cleans up).
+- `just sob <range>`: Validate Signed-off-by tags for a commit range (default: `HEAD~1..HEAD`).
+- `just check-pr`: Run all checks required for a Pull Request (`sob`, `lint`, `test`).
+- `just check-all`: Run the complete suite including integration tests.
+
 # Rust Coding Standards
 
 ## 1. Idiomatic Rust
