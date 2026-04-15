@@ -1792,10 +1792,13 @@ impl Database {
                     }
                 }
                 if !stem_matched {
-                    let mut p_rows = self.conn.query(
-                        "SELECT message_id FROM patches WHERE patchset_id = ? LIMIT 1",
-                        libsql::params![id],
-                    ).await?;
+                    let mut p_rows = self
+                        .conn
+                        .query(
+                            "SELECT message_id FROM patches WHERE patchset_id = ? LIMIT 1",
+                            libsql::params![id],
+                        )
+                        .await?;
                     if let Ok(Some(row)) = p_rows.next().await {
                         let other_id: String = row.get(0)?;
                         let new_stem = message_id.split('-').next().unwrap_or(message_id);
