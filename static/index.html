@@ -277,8 +277,14 @@
             color: var(--status-reviewed);
         }
 
-        .status-Failed {
+        .status-Failed,
+        .status-FailedToApply {
             color: var(--status-failed);
+        }
+
+        .status-Cancelled,
+        .status-Skipped {
+            color: var(--thought-color);
         }
 
         .status-Embargoed {
@@ -374,6 +380,7 @@
         .status-dot.status-Embargoed { background-color: var(--status-embargoed); }
         .status-dot.status-Cancelled { background-color: var(--thought-color); }
         .status-dot.status-Incomplete { background-color: var(--thought-color); }
+        .status-dot.status-Skipped { background-color: var(--thought-color); }
 
         /* Stats Footer */
         .stats {
