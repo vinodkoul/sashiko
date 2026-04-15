@@ -43,3 +43,7 @@ cc = ["damon@lists.linux.dev"]
 lists = ["linux-ext4@vger.kernel.org"]
 reply_to_author = true
 cc = ["tytso@mit.edu"]
+
+[subsystems.net]
+lists = ["netdev@vger.kernel.org"]
+embargo_hours = 24

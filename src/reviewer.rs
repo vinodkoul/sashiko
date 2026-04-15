@@ -167,6 +167,11 @@ impl Reviewer {
                 Ok(_) => {}
                 Err(e) => error!("Error in reviewer loop: {}", e),
             }
+
+            if let Err(e) = self.release_embargoed_results().await {
+                error!("Error releasing embargoed results: {}", e);
+            }
+
             tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
         }
     }
@@ -198,6 +203,77 @@ impl Reviewer {
                 let _permit = permit;
                 Self::review_patchset_task(context, patchset).await;
             });
+        }
+
+        Ok(())
+    }
+
+    async fn release_embargoed_results(&self) -> Result<()> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        let patchsets = self.db.get_expired_embargoed_patchsets(now, 10).await?;
+
+        if patchsets.is_empty() {
+            return Ok(());
+        }
+
+        info!(
+            "Found {} expired embargoed patchsets to release",
+            patchsets.len()
+        );
+
+        for patchset in patchsets {
+            let patchset_id = patchset.id;
+            info!("Releasing embargo for patchset {}", patchset_id);
+
+            let reviews = self
+                .db
+                .get_completed_reviews_for_release(patchset_id)
+                .await?;
+
+            let context = ReviewContext {
+                semaphore: self.semaphore.clone(),
+                db: self.db.clone(),
+                settings: self.settings.clone(),
+                baseline_registry: self.baseline_registry.clone(),
+                quota_manager: self.quota_manager.clone(),
+                target_review_count: 1,
+                provider: self.provider.clone(),
+            };
+
+            let mut all_success = true;
+            for review in reviews {
+                let ps_msg_id = patchset
+                    .message_id
+                    .as_deref()
+                    .unwrap_or(&review.patch_message_id);
+
+                if let Err(e) = Self::queue_notifications(
+                    &context,
+                    review.patch_id,
+                    &review.patch_message_id,
+                    ps_msg_id,
+                    review.index,
+                    &review.inline_review,
+                    Some(&review.findings),
+                    &review.summary,
+                )
+                .await
+                {
+                    error!(
+                        "Failed to queue notification for patch {}: {}",
+                        review.patch_id, e
+                    );
+                    all_success = false;
+                }
+            }
+
+            if all_success {
+                info!("Embargo released successfully for patchset {}", patchset_id);
+            }
         }
 
         Ok(())
@@ -449,25 +525,6 @@ impl Reviewer {
                 }
                 let commit_sha = patch_commits.get(index).cloned();
 
-                if let Some(sha) = &commit_sha {
-                    if let Ok(true) = worktree.is_merge_commit(sha).await {
-                        info!(
-                            "Skipping review for merge commit {} (ps={} idx={})",
-                            sha, patchset_id, index
-                        );
-                        let _ = ctx.db.update_patch_status(*patch_id, "Skipped").await;
-                        continue;
-                    }
-                    if let Ok(true) = worktree.is_empty_commit(sha).await {
-                        info!(
-                            "Skipping review for empty commit {} (ps={} idx={})",
-                            sha, patchset_id, index
-                        );
-                        let _ = ctx.db.update_patch_status(*patch_id, "Skipped").await;
-                        continue;
-                    }
-                }
-
                 valid_jobs.push(ValidJob {
                     patch_id: *patch_id,
                     index: *index,
@@ -492,6 +549,7 @@ impl Reviewer {
                     let prompts_hash_clone = prompts_hash.clone().map(|s| s.to_string());
                     let baseline_ref_clone = baseline_ref_str.to_string();
                     let baseline_id_clone = baseline_id;
+                    let embargo_until_clone = patchset.embargo_until;
 
                     let handle = tokio::spawn(async move {
                         let mut failed = 0;
@@ -513,6 +571,7 @@ impl Reviewer {
                                     prompts_hash_clone.as_deref(),
                                     None, // Worker creates its OWN worktree!
                                     &job.diff,
+                                    embargo_until_clone,
                                 )
                                 .await
                                 {
@@ -559,6 +618,7 @@ impl Reviewer {
                         prompts_hash.as_deref(),
                         Some(&worktree.path),
                         &job.diff,
+                        patchset.embargo_until,
                     )
                     .await
                     {
@@ -886,6 +946,7 @@ impl Reviewer {
         prompts_hash: Option<&str>,
         worktree_path: Option<&Path>,
         diff: &str,
+        embargo_until: Option<i64>,
     ) -> Result<PatchResult> {
         info!(
             "Reviewing patch {}/{} (ID: {})",
@@ -919,6 +980,7 @@ impl Reviewer {
                 "Patch {}/{} (ID: {}) already has a failed review. Skipping to keep it visible.",
                 patchset_id, index, patch_id
             );
+            let _ = ctx.db.update_patch_status(patch_id, "Failed").await;
             return Ok(PatchResult::ReviewFailed);
         }
 
@@ -1116,6 +1178,7 @@ impl Reviewer {
                                 retries += 1;
                                 continue;
                             } else {
+                                let _ = ctx.db.update_patch_status(patch_id, "Failed").await;
                                 return Ok(PatchResult::ReviewFailed);
                             }
                         } else if let Some(review_content) = json_output.get("review") {
@@ -1171,24 +1234,60 @@ impl Reviewer {
                                     db_success = false;
                                 }
 
-                                if db_success
-                                    && let Some(inline) = inline_review
-                                    && let Err(e) = Self::queue_notifications(
-                                        ctx,
-                                        patch_id,
-                                        input_payload,
-                                        index,
-                                        inline,
-                                        review_content["findings"].as_array(),
-                                        &summary,
-                                    )
-                                    .await
-                                {
-                                    error!("Failed to queue email for patch {}: {}", patch_id, e);
-                                    db_success = false;
+                                let now = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_secs() as i64;
+
+                                if db_success {
+                                    let inline_opt = inline_review;
+                                    if let Some(inline) = inline_opt {
+                                        let mut skip_notify = false;
+                                        if let Some(until) = embargo_until.filter(|&u| u > now) {
+                                            info!(
+                                                "Review completed but embargoed until {} for patch {}",
+                                                until, patch_id
+                                            );
+                                            skip_notify = true;
+                                        }
+
+                                        if !skip_notify {
+                                            let patch_msg_id = input_payload["patches"]
+                                                .as_array()
+                                                .and_then(|arr| {
+                                                    arr.iter().find(|p| p["index"] == index)
+                                                })
+                                                .and_then(|p| p["message_id"].as_str())
+                                                .unwrap_or("");
+
+                                            let patchset_msg_id = input_payload["message_id"]
+                                                .as_str()
+                                                .unwrap_or(patch_msg_id);
+
+                                            if let Err(e) = Self::queue_notifications(
+                                                ctx,
+                                                patch_id,
+                                                patch_msg_id,
+                                                patchset_msg_id,
+                                                index,
+                                                inline,
+                                                review_content["findings"].as_array(),
+                                                &summary,
+                                            )
+                                            .await
+                                            {
+                                                error!(
+                                                    "Failed to queue email for patch {}: {}",
+                                                    patch_id, e
+                                                );
+                                                db_success = false;
+                                            }
+                                        }
+                                    }
                                 }
                                 if db_success {
                                     let _ = ctx.db.commit_transaction().await;
+                                    let _ = ctx.db.update_patch_status(patch_id, "Reviewed").await;
                                 } else {
                                     let _ = ctx.db.conn.execute("ROLLBACK", ()).await;
                                 }
@@ -1210,6 +1309,7 @@ impl Reviewer {
                                         logs_str.as_deref(),
                                     )
                                     .await;
+                                let _ = ctx.db.update_patch_status(patch_id, "Skipped").await;
                                 return Ok(PatchResult::Success);
                             } else {
                                 let _ = ctx
@@ -1228,6 +1328,7 @@ impl Reviewer {
                                     retries += 1;
                                     continue;
                                 } else {
+                                    let _ = ctx.db.update_patch_status(patch_id, "Failed").await;
                                     return Ok(PatchResult::ReviewFailed);
                                 }
                             }
@@ -1247,6 +1348,7 @@ impl Reviewer {
                                     logs_str.as_deref(),
                                 )
                                 .await;
+                            let _ = ctx.db.update_patch_status(patch_id, "Failed").await;
                             return Ok(PatchResult::ReviewFailed);
                         }
                     } else {
@@ -1270,6 +1372,7 @@ impl Reviewer {
                             retries += 1;
                             continue;
                         }
+                        let _ = ctx.db.update_patch_status(patch_id, "Failed").await;
                         return Ok(PatchResult::ReviewFailed);
                     }
                 }
@@ -1291,6 +1394,7 @@ impl Reviewer {
                         retries += 1;
                         continue;
                     }
+                    let _ = ctx.db.update_patch_status(patch_id, "Failed").await;
                     return Ok(PatchResult::ReviewFailed);
                 }
             }
@@ -1711,15 +1815,34 @@ async fn run_review_tool(
     }
 }
 impl Reviewer {
+    #[allow(clippy::too_many_arguments)]
     async fn queue_notifications(
         ctx: &ReviewContext,
         patch_id: i64,
-        input_payload: &Value,
+        patch_message_id: &str,
+        patchset_message_id: &str,
         index: i64,
         inline_review: &str,
         findings: Option<&Vec<Value>>,
         _summary: &str,
     ) -> Result<()> {
+        let mut rows = ctx
+            .db
+            .conn
+            .query(
+                "SELECT 1 FROM email_outbox WHERE patch_id = ?",
+                libsql::params![patch_id],
+            )
+            .await?;
+
+        if let Ok(Some(_)) = rows.next().await {
+            info!(
+                "Notification already processed for patch_id {}, skipping.",
+                patch_id
+            );
+            return Ok(());
+        }
+
         let sender_address = match &ctx.settings.smtp {
             Some(s) => s.sender_address.clone(),
             None => {
@@ -1730,16 +1853,8 @@ impl Reviewer {
 
         let findings_count = findings.map(|f| f.len()).unwrap_or(0);
 
-        let patch_obj = input_payload["patches"]
-            .as_array()
-            .and_then(|arr| arr.iter().find(|p| p["index"] == index));
-
-        let msg_id = match patch_obj.and_then(|p| p["message_id"].as_str()) {
-            Some(m) => m,
-            None => return Ok(()),
-        };
-
-        let patchset_msg_id = input_payload["message_id"].as_str().unwrap_or(msg_id);
+        let msg_id = patch_message_id;
+        let patchset_msg_id = patchset_message_id;
         let patchset_msg_id_clean = patchset_msg_id.trim_matches(|c| c == '<' || c == '>');
 
         let msg_details = match ctx.db.get_message_details_by_msgid(msg_id).await? {
@@ -1812,6 +1927,18 @@ impl Reviewer {
 
         if findings_count == 0 {
             info!("No issues found for patch {}, skipping email.", patch_id);
+            ctx.db
+                .insert_email_outbox(
+                    patch_id,
+                    "Skipped",
+                    "[]",
+                    "[]",
+                    "Skipped",
+                    msg_id.trim_matches(|c| c == '<' || c == '>'),
+                    msg_id.trim_matches(|c| c == '<' || c == '>'),
+                    "Skipped due to no findings",
+                )
+                .await?;
             return Ok(());
         }
 
@@ -1826,6 +1953,18 @@ impl Reviewer {
         match action {
             EmailAction::Mute => {
                 info!("Email policy muted email for patch {}", patch_id);
+                ctx.db
+                    .insert_email_outbox(
+                        patch_id,
+                        "Muted",
+                        "[]",
+                        "[]",
+                        "Muted",
+                        msg_id.trim_matches(|c| c == '<' || c == '>'),
+                        msg_id.trim_matches(|c| c == '<' || c == '>'),
+                        "Muted by policy",
+                    )
+                    .await?;
             }
             EmailAction::Send { to, cc } => {
                 let to_json = serde_json::to_string(&to)?;
@@ -2139,6 +2278,7 @@ echo '{"patchset_id": 1, "patches": [{"index": 1, "status": "applied"}]}'
             None,
             None,
             diff_ignored,
+            None,
         )
         .await?;
 
@@ -2179,6 +2319,7 @@ echo '{"patchset_id": 1, "patches": [{"index": 1, "status": "applied"}]}'
             None,
             None,
             diff_dir,
+            None,
         )
         .await?;
 
@@ -2214,6 +2355,7 @@ echo '{"patchset_id": 1, "patches": [{"index": 1, "status": "applied"}]}'
             None,
             None,
             diff_mixed,
+            None,
         )
         .await;
 

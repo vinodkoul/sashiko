@@ -383,8 +383,10 @@ async fn handle_list(
 
                 for item in data.items {
                     let status_str = item.status.as_deref().unwrap_or("Unknown");
+
                     let status_color = match status_str {
                         "Reviewed" => Color::Green,
+                        "Embargoed" => Color::Magenta,
                         "Failed" | "Error" | "Failed To Apply" => Color::Red,
                         "Pending" | "In Review" => Color::Yellow,
                         _ => Color::White,
@@ -485,7 +487,19 @@ async fn handle_show(
                 println!("  ID:        {}", details["id"]);
                 println!("  Subject:   {}", details["subject"].as_str().unwrap_or(""));
                 println!("  Author:    {}", details["author"].as_str().unwrap_or(""));
-                println!("  Status:    {}", details["status"].as_str().unwrap_or(""));
+                let status_str = details["status"].as_str().unwrap_or("");
+                if status_str == "Embargoed" {
+                    if let Some(until_ts) = details.get("embargo_until").and_then(|u| u.as_i64()) {
+                        println!(
+                            "  Status:    Embargoed until {}",
+                            format_timestamp(until_ts)
+                        );
+                    } else {
+                        println!("  Status:    Embargoed");
+                    }
+                } else {
+                    println!("  Status:    {}", status_str);
+                }
 
                 if let Some(ts) = details["date"].as_i64() {
                     println!("  Date:      {}", format_timestamp(ts));
@@ -524,10 +538,10 @@ async fn handle_show(
                         print!("  [{}] {}", idx, patch["subject"].as_str().unwrap_or(""));
                         if !status.is_empty() && status != "Pending" {
                             print!(" (");
-                            let color = if status == "Failed" {
-                                Color::Red
-                            } else {
-                                Color::Green
+                            let color = match status {
+                                "Failed" | "Failed To Apply" | "Error" => Color::Red,
+                                "Embargoed" => Color::Magenta,
+                                _ => Color::Green,
                             };
                             print_colored(color, status);
                             print!(")");

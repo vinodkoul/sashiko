@@ -48,6 +48,7 @@
             --status-inreview: #d67f05;
             --status-reviewed: #22863a;
             --status-failed: #d73a49;
+            --status-embargoed: #6f42c1;
             --tag-bg: #e0f7fa;
             --tag-text: #006064;
             --diff-add-bg: #e6ffec;
@@ -91,6 +92,7 @@
                 --status-inreview: #d29922;
                 --status-reviewed: #3fb950;
                 --status-failed: #f85149;
+                --status-embargoed: #d2a8ff;
                 --tag-bg: #032f62;
                 --tag-text: #79c0ff;
                 --diff-add-bg: rgba(46, 160, 67, 0.15);
@@ -243,21 +245,27 @@
         .status-badge {
             display: inline-flex;
             align-items: center;
-            gap: 4px;
+            gap: 6px;
             font-size: 0.85em;
             font-weight: bold;
+            background: transparent;
+            border: none;
         }
 
         .status-badge::before {
-            content: '#';
-            color: currentColor;
+            content: '';
+            display: block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: currentColor;
         }
 
         .status-Pending {
             color: var(--status-pending);
         }
 
-        .status-In,
+        .status-InReview,
         .status-Analyzing,
         .status-Reviewing {
             color: var(--status-inreview);
@@ -271,6 +279,10 @@
 
         .status-Failed {
             color: var(--status-failed);
+        }
+
+        .status-Embargoed {
+            color: var(--status-embargoed);
         }
 
         .status-Incomplete {
@@ -359,6 +371,7 @@
         .status-dot.status-Reviewed { background-color: var(--status-reviewed); }
         .status-dot.status-Failed { background-color: var(--status-failed); }
         .status-dot.status-FailedToApply { background-color: var(--status-failed); }
+        .status-dot.status-Embargoed { background-color: var(--status-embargoed); }
         .status-dot.status-Cancelled { background-color: var(--thought-color); }
         .status-dot.status-Incomplete { background-color: var(--thought-color); }
 
@@ -1470,6 +1483,7 @@
                         tagsHtml = '<div style="margin-top:2px">' + p.subsystems.map(s => `<span class="tag">${escapeHtml(s)}</span>`).join('') + '</div>';
                     }
 
+                    let statusLabel = p.status || 'Pending';
                     let findingsHtml = '-';
                     if (p.findings_low !== undefined || p.findings_medium !== undefined || p.findings_high !== undefined || p.findings_critical !== undefined) {
                         const counts = {
@@ -1478,7 +1492,7 @@
                             high: p.findings_high || 0,
                             critical: p.findings_critical || 0
                         };
-                        findingsHtml = renderFindingsBadges(counts, p.status);
+                        findingsHtml = renderFindingsBadges(counts, statusLabel);
                     }
 
                     row.innerHTML = `
@@ -1486,7 +1500,7 @@
                         <td style="line-height:1.2;">${authorHtml}</td>
                         <td style="line-height:1.2;">${dateHtml}</td>
                         <td>${parts}</td>
-                        <td><span class="status-badge status-${p.status}">${p.status || 'Pending'}</span></td>
+                        <td><span class="status-badge status-${statusLabel.replace(/ /g, '')}">${statusLabel}</span></td>
                         <td>${findingsHtml}</td>
                     `;
                 } else {
@@ -1629,8 +1643,14 @@
             }
 
             let reviewsHtml = '';
-            const renderReviewList = (reviews, emailHtml = '') => {
-                if (!reviews || reviews.length === 0) return `<p style="font-style:italic; color:#888;">No reviews yet.</p>`;
+            const renderReviewList = (reviews, emailHtml = '', patchStatus = null) => {
+                if (!reviews || reviews.length === 0) {
+                    const statusToCheck = patchStatus || data.status;
+                    if (statusToCheck === 'Embargoed' && data.embargo_until) {
+                        return `<p style="font-style:italic; color:var(--status-embargoed);">Embargoed until ${formatDate(data.embargo_until, true)}</p>`;
+                    }
+                    return `<p style="font-style:italic; color:#888;">No reviews yet.</p>`;
+                }
                 return reviews.map((r, i) => renderReviewCard(r, i === reviews.length - 1 ? emailHtml : '')).join('');
             };
 
@@ -1706,7 +1726,7 @@
                     const reason = reviews[0].result || 'Skipped.';
                     listHtml = `<p style="font-style:italic; color:#888;">${escapeHtml(reason)}</p>`;
                 } else {
-                    listHtml = renderReviewList(reviews, emailHtml);
+                    listHtml = renderReviewList(reviews, emailHtml, patch ? patch.status : null);
                 }
 
                 reviewsHtml += `
@@ -1921,11 +1941,13 @@
                  `;
             }
 
+            let currentStatus = data.status || 'Pending';
+
             document.getElementById('app').innerHTML = `
                 <div class="nav"><a href="#/" onclick="event.preventDefault(); goBack();">← Back</a></div>
                 <h1>
                     <span>${escapeHtml(data.subject) || '(no subject)'}</span>
-                    <span class="status-badge status-${data.status}">${data.status || 'Pending'}</span>
+                    <span class="status-badge status-${currentStatus.replace(/ /g, '')}">${currentStatus}</span>
                 </h1>
                 
                 ${failureHtml}
@@ -2008,7 +2030,7 @@
                     <span>Baseline Application Log</span>
                     <span style="font-size:0.7em; font-weight:normal; color:#888;">
                         ${escapeHtml(baselineName)} · 
-                        <span class="status-badge status-${status}">${status}</span>
+                        <span class="status-badge status-${(status || '').replace(/ /g, '')}">${status}</span>
                     </span>
                 </h1>
                 <div class="section">
@@ -2108,11 +2130,11 @@
                         <div class="review-meta-label">Result:</div>
                         <div style="display:flex; justify-content:space-between; align-items:center;">
                             <span>${displayResult}</span>
-                            <span class="status-badge status-${statusRaw.split(' ')[0]}">${statusRaw}</span>
+                            <span class="status-badge status-${(statusRaw || '').replace(/ /g, '')}">${statusRaw}</span>
                         </div>
                         ` : `
                         <div class="review-meta-label">Status:</div>
-                        <div><span class="status-badge status-${statusRaw.split(' ')[0]}">${statusRaw}</span></div>
+                        <div><span class="status-badge status-${(statusRaw || '').replace(/ /g, '')}">${statusRaw}</span></div>
                         `}
                     </div>
                     ${showDetails ? `
@@ -2330,7 +2352,7 @@ ${escapeHtml((data.body || '(no body)').replace(/\n+$/, ''), true, false)}${data
                     <span>Interaction Log</span>
                     <span style="font-size:0.7em; font-weight:normal; color:#888;">
                         ${data.model || '?'} · ${data.prompts_hash ? 'Sashiko ver.: ' + data.prompts_hash.substring(0, 8) + ' · ' : ''}
-                        <span class="status-badge status-${data.status}">${data.status}</span>
+                        <span class="status-badge status-${(data.status || '').replace(/ /g, '')}">${data.status}</span>
                     </span>
                 </h1>
                 <div>${logsHtml}</div>

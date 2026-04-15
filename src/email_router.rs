@@ -205,6 +205,7 @@ mod tests {
                 cc: vec!["mm-bot@test.com".to_string()],
                 ignored_emails: vec![],
                 patchwork: Default::default(),
+                embargo_hours: None,
             },
         );
         subsystems.insert(
@@ -218,6 +219,7 @@ mod tests {
                 cc: vec![],
                 ignored_emails: vec![],
                 patchwork: Default::default(),
+                embargo_hours: None,
             },
         );
         subsystems.insert(
@@ -231,6 +233,7 @@ mod tests {
                 cc: vec![],
                 ignored_emails: vec![],
                 patchwork: Default::default(),
+                embargo_hours: None,
             },
         );
         EmailPolicyConfig {
@@ -243,6 +246,7 @@ mod tests {
                 cc: vec![],
                 ignored_emails: vec![],
                 patchwork: Default::default(),
+                embargo_hours: None,
             },
             subsystems,
         }

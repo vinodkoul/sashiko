@@ -78,12 +78,14 @@ CREATE TABLE IF NOT EXISTS patchsets (
     only_filters TEXT,
     target_review_count INTEGER DEFAULT 1,
     provider TEXT,
+    embargo_until INTEGER,
     FOREIGN KEY(thread_id) REFERENCES threads(id),
     FOREIGN KEY(cover_letter_message_id) REFERENCES messages(message_id),
     FOREIGN KEY(baseline_id) REFERENCES baselines(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_patchsets_status ON patchsets(status);
+CREATE INDEX IF NOT EXISTS idx_patchsets_status_embargo_until ON patchsets(status, embargo_until);
 
 CREATE TABLE IF NOT EXISTS patches (
     id INTEGER PRIMARY KEY,

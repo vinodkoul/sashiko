@@ -753,8 +753,8 @@ async fn process_parsed_article(
     }
 
     let mut subsystem_ids = Vec::new();
-    for (name, email) in subsystems {
-        match worker_db.ensure_subsystem(&name, &email).await {
+    for (name, email) in &subsystems {
+        match worker_db.ensure_subsystem(name, email).await {
             Ok(sid) => subsystem_ids.push(sid),
             Err(e) => error!("Failed to ensure subsystem {}: {}", name, e),
         }
@@ -857,6 +857,28 @@ async fn process_parsed_article(
             )
         };
 
+        let mut max_embargo_hours = policy.defaults.embargo_hours.unwrap_or(0);
+        for (_, email) in &subsystems {
+            for sp in policy.subsystems.values() {
+                #[allow(clippy::collapsible_if)]
+                if sp.lists.iter().any(|list| email.contains(list)) {
+                    if let Some(delay) = sp.embargo_hours {
+                        max_embargo_hours = max_embargo_hours.max(delay);
+                    }
+                }
+            }
+        }
+
+        let embargo_until = if max_embargo_hours > 0 {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+            Some(now + (max_embargo_hours as i64) * 3600)
+        } else {
+            None
+        };
+
         match worker_db
             .create_patchset(
                 thread_id,
@@ -879,6 +901,19 @@ async fn process_parsed_article(
             .await
         {
             Ok(Some(patchset_id)) => {
+                #[allow(clippy::collapsible_if)]
+                if let Some(until) = embargo_until {
+                    if let Err(e) = worker_db
+                        .set_patchset_embargo_until(patchset_id, until)
+                        .await
+                    {
+                        error!(
+                            "Failed to set embargo_until for patchset {}: {}",
+                            patchset_id, e
+                        );
+                    }
+                }
+
                 for &sid in &subsystem_ids {
                     if let Err(e) = worker_db.add_subsystem_to_patchset(patchset_id, sid).await {
                         error!("Failed to link patchset to subsystem: {}", e);
