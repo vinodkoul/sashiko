@@ -467,6 +467,27 @@ impl Database {
         let _ = self
             .try_create_index("idx_tool_usages_review", "tool_usages", "review_id")
             .await;
+        let _ = self
+            .try_create_index(
+                "idx_ai_interactions_tokens",
+                "ai_interactions",
+                "id, tokens_in, tokens_out, tokens_cached",
+            )
+            .await;
+        let _ = self
+            .try_create_index(
+                "idx_reviews_grouping",
+                "reviews",
+                "provider, model, status, interaction_id",
+            )
+            .await;
+        let _ = self
+            .try_create_index(
+                "idx_tool_usages_stats",
+                "tool_usages",
+                "provider, model, tool_name, output_length",
+            )
+            .await;
 
         // Manual migration for messages_mailing_lists
         let _ = self

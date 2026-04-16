@@ -240,3 +240,7 @@ CREATE TABLE IF NOT EXISTS email_outbox (
 );
 CREATE INDEX IF NOT EXISTS idx_email_outbox_status ON email_outbox(status);
 
+CREATE INDEX IF NOT EXISTS idx_ai_interactions_tokens ON ai_interactions(id, tokens_in, tokens_out, tokens_cached);
+CREATE INDEX IF NOT EXISTS idx_reviews_grouping ON reviews(provider, model, status, interaction_id);
+CREATE INDEX IF NOT EXISTS idx_tool_usages_stats ON tool_usages(provider, model, tool_name, output_length);
+
