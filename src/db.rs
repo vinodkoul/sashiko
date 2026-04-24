@@ -1776,6 +1776,28 @@ impl Database {
                 p_rows.next().await.ok().flatten().is_some()
             };
 
+            let mut existing_msgid_prefix = None;
+            if let Some(ref cover_id) = existing_cover_id {
+                existing_msgid_prefix =
+                    Some(cover_id.split('-').next().unwrap_or(cover_id).to_string());
+            } else {
+                let mut p_rows = self
+                    .conn
+                    .query(
+                        "SELECT message_id FROM patches WHERE patchset_id = ? LIMIT 1",
+                        libsql::params![id],
+                    )
+                    .await?;
+                if let Ok(Some(p_row)) = p_rows.next().await {
+                    let pid: String = p_row.get(0)?;
+                    existing_msgid_prefix = Some(pid.split('-').next().unwrap_or(&pid).to_string());
+                }
+            }
+
+            let new_msgid_prefix = message_id.split('-').next().unwrap_or(message_id);
+            let msgid_prefix_match = existing_msgid_prefix.as_deref() == Some(new_msgid_prefix)
+                && new_msgid_prefix.len() > 10;
+
             // Matching logic:
             // 1. Author matches OR it's a multi-part series with matching total_parts (trusting thread context)
             //    BUT strict_author enforces strict author matching (for Email/NNTP).
@@ -1839,8 +1861,9 @@ impl Database {
             };
 
             // Thread Enforcement: To prevent cross-thread "stealing" of patches for resends of the same series,
-            // we strictly require multi-part series patches to belong to the same thread.
-            let thread_compatible = same_thread || is_singleton;
+            // we strictly require multi-part series patches to belong to the same thread,
+            // unless they share a git send-email Message-ID prefix indicating they were sent together unthreaded.
+            let thread_compatible = same_thread || is_singleton || msgid_prefix_match;
 
             if author_or_series_match
                 && (!strict_author || (date - existing_date).abs() < 86400)
