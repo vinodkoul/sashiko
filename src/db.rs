@@ -3230,7 +3230,7 @@ impl Database {
 
     pub async fn restart_failed_reviews(&self) -> Result<u64> {
         let count = self.conn.execute(
-            "UPDATE patchsets SET status = 'Pending', failed_reason = NULL WHERE status = 'Failed'",
+            "UPDATE patchsets SET status = 'Pending', failed_reason = NULL WHERE status IN ('Failed', 'Failed To Apply')",
             libsql::params![],
         ).await?;
         Ok(count)
