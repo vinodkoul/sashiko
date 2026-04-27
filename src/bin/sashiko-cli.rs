@@ -106,6 +106,32 @@ enum Commands {
         #[arg(long, short)]
         force: bool,
     },
+    /// Run a local review (or queue to running server)
+    Local {
+        /// Git revision, range (e.g. HEAD~3..HEAD), or commit SHA
+        #[arg(default_value = "HEAD")]
+        input: String,
+
+        /// Baseline reference (default: parent of first commit in range)
+        #[arg(long)]
+        baseline: Option<String>,
+
+        /// Path to git repository (default: current directory)
+        #[arg(long, short = 'r')]
+        repo: Option<PathBuf>,
+
+        /// Skip AI review, only test patch application
+        #[arg(long)]
+        no_ai: bool,
+
+        /// Custom prompt to append to the review task
+        #[arg(long)]
+        custom_prompt: Option<String>,
+
+        /// Force local execution even if server is running
+        #[arg(long)]
+        force_local: bool,
+    },
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -198,6 +224,27 @@ async fn run_command(
         } => handle_list(client, base_url, page, per_page, filter, format).await,
         Commands::Show { id } => handle_show(client, base_url, id, format).await,
         Commands::Cancel { id, force } => handle_cancel(client, base_url, id, force, format).await,
+        Commands::Local {
+            input,
+            baseline,
+            repo,
+            no_ai,
+            custom_prompt,
+            force_local,
+        } => {
+            handle_local(
+                client,
+                base_url,
+                input,
+                baseline,
+                repo,
+                no_ai,
+                custom_prompt,
+                force_local,
+                format,
+            )
+            .await
+        }
     }
 }
 
@@ -710,6 +757,350 @@ async fn handle_cancel(
     }
 
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn handle_local(
+    client: &Client,
+    base_url: &str,
+    input: String,
+    baseline: Option<String>,
+    repo: Option<PathBuf>,
+    no_ai: bool,
+    custom_prompt: Option<String>,
+    force_local: bool,
+    format: OutputFormat,
+) -> Result<()> {
+    // Determine repository path
+    let repo_path = if let Some(r) = repo {
+        r
+    } else {
+        let cwd = std::env::current_dir().context("Failed to get current directory")?;
+        // Verify CWD is a git repo
+        if !cwd.join(".git").exists() {
+            return Err(anyhow::anyhow!(
+                "Current directory is not a git repository. Use --repo to specify one."
+            ));
+        }
+        cwd
+    };
+
+    // Check if server is running (unless --force-local)
+    if !force_local && let Ok(settings) = Settings::new() {
+        let addr = format!("{}:{}", settings.server.host, settings.server.port);
+        if tokio::net::TcpStream::connect(&addr).await.is_ok() {
+            // Server is running — submit via API
+            let submit_type = if input.contains("..") {
+                SubmitType::Range
+            } else {
+                SubmitType::Remote
+            };
+            let repo_str = Some(repo_path.to_string_lossy().to_string());
+
+            let url = format!("{}/api/submit", base_url);
+            let payload = match submit_type {
+                SubmitType::Range => SubmitRequest::RemoteRange {
+                    sha: input.clone(),
+                    repo: repo_str,
+                    skip_subjects: None,
+                    only_subjects: None,
+                },
+                _ => SubmitRequest::Remote {
+                    sha: input.clone(),
+                    repo: repo_str,
+                    skip_subjects: None,
+                    only_subjects: None,
+                },
+            };
+
+            let resp = client.post(&url).json(&payload).send().await?;
+            if resp.status().is_success() {
+                let result: SubmitResponse = resp.json().await?;
+                print_colored(Color::Green, "Queued: ");
+                println!(
+                    "Review submitted (ID: {}). View at {}/",
+                    result.id, base_url
+                );
+                println!("\nUse `sashiko-cli show {}` to check progress.", result.id);
+            } else {
+                let status = resp.status();
+                let text = resp.text().await.unwrap_or_default();
+                return Err(anyhow::anyhow!(
+                    "Failed to queue review ({}): {}",
+                    status,
+                    text
+                ));
+            }
+            return Ok(());
+        }
+    }
+    // Cold start path: run review locally via sashiko-review subprocess
+    eprint_phase(1, 4, &format!("Extracting patches from {}...", input));
+
+    // Resolve commits
+    let shas = if input.contains("..") {
+        sashiko::git_ops::resolve_git_range(&repo_path, &input).await?
+    } else {
+        // Single ref — resolve to SHA
+        let sha = sashiko::git_ops::get_commit_hash(&repo_path, &input).await?;
+        vec![sha]
+    };
+
+    eprintln!(
+        " ({} commit{})",
+        shas.len(),
+        if shas.len() == 1 { "" } else { "s" }
+    );
+
+    // Extract patch metadata and build ReviewInput
+    let mut patches = Vec::new();
+    for (i, sha) in shas.iter().enumerate() {
+        let meta = sashiko::git_ops::extract_patch_metadata(&repo_path, sha)
+            .await
+            .with_context(|| format!("Failed to extract metadata for commit {}", sha))?;
+        patches.push(sashiko::worker::PatchInput {
+            index: (i + 1) as i64,
+            diff: meta.diff,
+            subject: Some(meta.subject),
+            author: Some(meta.author),
+            date: Some(meta.timestamp),
+            message_id: None,
+            commit_id: Some(sha.clone()),
+        });
+    }
+
+    let review_input = sashiko::worker::ReviewInput {
+        id: 0, // Local review, no DB ID
+        subject: patches
+            .first()
+            .and_then(|p| p.subject.clone())
+            .unwrap_or_else(|| input.clone()),
+        patches,
+    };
+
+    let review_json =
+        serde_json::to_string(&review_input).context("Failed to serialize review input")?;
+
+    // Locate sashiko-review binary
+    let review_bin = find_review_binary()?;
+
+    // Build subprocess args
+    let baseline_ref = if let Some(b) = &baseline {
+        b.clone()
+    } else {
+        // Default: parent of first commit
+        let first_sha = &shas[0];
+        format!("{}^", first_sha)
+    };
+
+    let mut args = vec!["--baseline".to_string(), baseline_ref];
+
+    if no_ai {
+        args.push("--no-ai".to_string());
+    }
+    if let Some(prompt) = &custom_prompt {
+        args.push("--custom-prompt".to_string());
+        args.push(prompt.clone());
+    }
+
+    eprint_phase(2, 4, "Starting review subprocess...");
+    eprintln!();
+
+    // Spawn review subprocess
+    let mut child = tokio::process::Command::new(&review_bin)
+        .args(&args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .env("SASHIKO_LOG_PLAIN", "1")
+        .spawn()
+        .with_context(|| format!("Failed to start review binary: {:?}", review_bin))?;
+
+    // Write input to stdin
+    if let Some(mut stdin) = child.stdin.take() {
+        use tokio::io::AsyncWriteExt;
+        stdin
+            .write_all(format!("{}\n", review_json).as_bytes())
+            .await
+            .context("Failed to write to review subprocess stdin")?;
+        drop(stdin);
+    }
+
+    // Stream stderr for progress in a background task
+    let stderr = child.stderr.take();
+    let stderr_handle = tokio::spawn(async move {
+        if let Some(stderr) = stderr {
+            use tokio::io::{AsyncBufReadExt, BufReader};
+            let reader = BufReader::new(stderr);
+            let mut lines = reader.lines();
+            let mut saw_applying = false;
+            let mut saw_ai_review = false;
+            while let Ok(Some(line)) = lines.next_line().await {
+                if !saw_applying && line.contains("Applying") {
+                    saw_applying = true;
+                    eprint_phase(2, 4, "Applying patches to worktree...");
+                    eprintln!();
+                }
+                if !saw_ai_review && line.contains("Starting AI review") {
+                    saw_ai_review = true;
+                    eprint_phase(3, 4, "AI review in progress...");
+                    eprintln!();
+                }
+                if line.contains("AI review completed") {
+                    eprint_phase(4, 4, "Review complete.");
+                    eprintln!();
+                }
+            }
+        }
+    });
+
+    // Capture stdout
+    let output = child
+        .wait_with_output()
+        .await
+        .context("Failed to wait for review subprocess")?;
+
+    let _ = stderr_handle.await;
+
+    let exit_code = output.status.code().unwrap_or(1);
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+
+    if stdout.trim().is_empty() {
+        return Err(anyhow::anyhow!(
+            "Review subprocess produced no output (exit code: {})",
+            exit_code
+        ));
+    }
+
+    // Parse the review output
+    let result: Value =
+        serde_json::from_str(stdout.trim()).context("Failed to parse review output JSON")?;
+
+    match format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        OutputFormat::Text => {
+            print_local_review_results(&result, &input);
+        }
+    }
+
+    // Determine exit code based on findings
+    if let Some(err) = result.get("error").and_then(|e| e.as_str())
+        && !err.is_empty()
+    {
+        std::process::exit(3);
+    }
+    if let Some(review) = result.get("review")
+        && let Some(findings) = review.get("findings").and_then(|f| f.as_array())
+    {
+        let (c, h, _, _) = count_severities(findings);
+        if c > 0 || h > 0 {
+            std::process::exit(1);
+        }
+    }
+
+    Ok(())
+}
+
+fn eprint_phase(current: usize, total: usize, msg: &str) {
+    eprint!("[{}/{}] {}", current, total, msg);
+}
+
+fn find_review_binary() -> Result<PathBuf> {
+    // Try same directory as current executable
+    if let Ok(exe) = std::env::current_exe() {
+        let dir = exe.parent().unwrap_or(std::path::Path::new("."));
+        let candidate = dir.join("sashiko-review");
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+        // Also check for "review" (cargo build output name)
+        let candidate = dir.join("review");
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    // Try PATH
+    if let Ok(output) = std::process::Command::new("which")
+        .arg("sashiko-review")
+        .output()
+        && output.status.success()
+    {
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        return Ok(PathBuf::from(path));
+    }
+
+    Err(anyhow::anyhow!(
+        "Cannot find sashiko-review binary.\n\
+         Build it with: cargo build --bin review\n\
+         Or specify its location in PATH."
+    ))
+}
+
+fn print_local_review_results(result: &Value, input: &str) {
+    let baseline = result["baseline"].as_str().unwrap_or("unknown");
+    print_colored(Color::Cyan, "Local Review Results\n");
+    println!("  Input:    {}", input);
+    println!("  Baseline: {}", baseline);
+
+    // Show patch application status
+    if let Some(patches) = result.get("patches").and_then(|p| p.as_array()) {
+        println!("\nPatch Application:");
+        for p in patches {
+            let idx = p["index"].as_i64().unwrap_or(0);
+            let status = p["status"].as_str().unwrap_or("unknown");
+            let method = p["method"].as_str().unwrap_or("");
+            let color = match status {
+                "applied" => Color::Green,
+                "failed" | "error" => Color::Red,
+                _ => Color::Yellow,
+            };
+            print!("  [{}] ", idx);
+            print_colored(color, status);
+            if !method.is_empty() {
+                print!(" ({})", method);
+            }
+            println!();
+            if let Some(err) = p.get("error").and_then(|e| e.as_str()) {
+                print_colored(Color::Red, "      Error: ");
+                println!("{}", err);
+            }
+        }
+    }
+
+    // Show error if present
+    if let Some(err) = result.get("error").and_then(|e| e.as_str())
+        && !err.is_empty()
+    {
+        println!();
+        print_colored(Color::Red, "Error: ");
+        println!("{}", err);
+        return;
+    }
+
+    // Show review results
+    if let Some(review) = result.get("review")
+        && let Some(findings) = review.get("findings").and_then(|f| f.as_array())
+    {
+        let inline = result.get("inline_review").and_then(|s| s.as_str());
+        println!();
+        if !print_findings_summary("Review Findings:", findings, inline) {
+            print_colored(Color::Green, "\nNo issues found.\n");
+        }
+    }
+
+    // Show token usage
+    let tokens_in = result["tokens_in"].as_u64().unwrap_or(0);
+    let tokens_out = result["tokens_out"].as_u64().unwrap_or(0);
+    let tokens_cached = result["tokens_cached"].as_u64().unwrap_or(0);
+    if tokens_in > 0 || tokens_out > 0 {
+        println!(
+            "\nTokens: {} in / {} out / {} cached",
+            tokens_in, tokens_out, tokens_cached
+        );
+    }
 }
 
 /// Count finding severities from a findings JSON array.
