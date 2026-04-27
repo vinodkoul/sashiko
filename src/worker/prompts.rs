@@ -60,6 +60,13 @@ pub struct PatchInput {
     pub commit_id: Option<String>,
 }
 
+#[derive(Deserialize, Serialize, Debug)]
+pub struct ReviewInput {
+    pub id: i64,
+    pub subject: String,
+    pub patches: Vec<PatchInput>,
+}
+
 fn validate_inline_format(content: &str) -> std::result::Result<(), String> {
     if content.lines().any(|l| l.trim_start().starts_with("```")) {
         return Err("The output contains Markdown code blocks ('```'). It must be plain text as per `inline-template.md`.".to_string());

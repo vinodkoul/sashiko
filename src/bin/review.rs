@@ -18,11 +18,10 @@ use sashiko::{
     git_ops::GitWorktree,
     settings::Settings,
     worker::{
-        PatchInput, Worker, WorkerConfig, calculate_series_range, prompts::PromptRegistry,
-        tools::ToolBox,
+        PatchInput, ReviewInput, Worker, WorkerConfig, calculate_series_range,
+        prompts::PromptRegistry, tools::ToolBox,
     },
 };
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -77,13 +76,6 @@ struct Args {
     /// Select which stages from 1-7 to run.
     #[arg(long, hide = true, value_delimiter = ',')]
     stages: Option<Vec<u8>>,
-}
-
-#[derive(Deserialize, Serialize, Debug)]
-struct ReviewInput {
-    id: i64,
-    subject: String,
-    patches: Vec<PatchInput>,
 }
 
 #[tokio::main]
