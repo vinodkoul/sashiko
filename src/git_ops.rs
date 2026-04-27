@@ -789,6 +789,122 @@ pub async fn git_tag(repo_path: &Path) -> Result<String> {
     }
 }
 
+/// Metadata extracted from a single git commit.
+pub struct PatchMetadata {
+    pub author: String,
+    pub subject: String,
+    pub message: String,
+    pub diff: String,
+    pub base_commit: Option<String>,
+    pub timestamp: i64,
+}
+
+/// Resolve a git range (e.g. "HEAD~3..HEAD") to an ordered list of commit SHAs.
+pub async fn resolve_git_range(repo_path: &Path, range: &str) -> Result<Vec<String>> {
+    let output = Command::new("git")
+        .current_dir(repo_path)
+        .args(["-c", "safe.bareRepository=all"])
+        .args(["rev-list", "--reverse", range])
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        return Err(anyhow!(
+            "Failed to resolve git range '{}': {}",
+            range,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    let shas: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|s| s.to_string())
+        .collect();
+
+    if shas.is_empty() {
+        return Err(anyhow!("Git range '{}' is empty", range));
+    }
+
+    Ok(shas)
+}
+
+/// Extract patch metadata from a commit using `git show`.
+pub async fn extract_patch_metadata(repo_path: &Path, commit: &str) -> Result<PatchMetadata> {
+    // Resolve parent to use as base_commit
+    let parent_output = Command::new("git")
+        .current_dir(repo_path)
+        .args(["rev-parse", &format!("{}^", commit)])
+        .output()
+        .await?;
+
+    let base_commit = if parent_output.status.success() {
+        Some(
+            String::from_utf8_lossy(&parent_output.stdout)
+                .trim()
+                .to_string(),
+        )
+    } else {
+        warn!(
+            "Failed to resolve parent for {}, using commit as base",
+            commit
+        );
+        Some(commit.to_string())
+    };
+
+    let format = "format:%an%n%ae%n%s%n%b%n---SASHIKO-END-HEADER---%n";
+
+    let output = Command::new("git")
+        .current_dir(repo_path)
+        .args(["show", &format!("--format={}", format), commit])
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        return Err(anyhow!(
+            "git show failed for {}: {}",
+            commit,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    let raw = String::from_utf8_lossy(&output.stdout).to_string();
+    let parts: Vec<&str> = raw.split("---SASHIKO-END-HEADER---\n").collect();
+
+    if parts.len() < 2 {
+        return Err(anyhow!("Failed to parse git show output for {}", commit));
+    }
+
+    let header_part = parts[0];
+    let diff = parts[1..].join("---SASHIKO-END-HEADER---\n");
+
+    let mut lines = header_part.lines();
+    let author_name = lines.next().unwrap_or_default().trim();
+    let author_email = lines.next().unwrap_or("unknown@localhost").trim();
+    let subject = lines.next().unwrap_or("No Subject").trim();
+
+    let body: Vec<&str> = lines.collect();
+    let message = body.join("\n").trim().to_string();
+
+    let author = if author_name.is_empty() || author_name.to_lowercase() == "unknown" {
+        author_email.to_string()
+    } else {
+        format!("{} <{}>", author_name, author_email)
+    };
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs() as i64;
+
+    Ok(PatchMetadata {
+        author,
+        subject: subject.to_string(),
+        message,
+        diff,
+        base_commit,
+        timestamp,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

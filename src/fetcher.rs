@@ -176,72 +176,23 @@ impl FetchAgent {
                     // It's a range
                     let range = &commit_or_range;
 
-                    // 1. Count commits
-                    let count_output = Command::new("git")
-                        .current_dir(&self.repo_path)
-                        .args(["-c", "safe.bareRepository=all"])
-                        .args(["rev-list", "--count", range])
-                        .output()
-                        .await;
-
-                    let count = match count_output {
-                        Ok(output) if output.status.success() => {
-                            String::from_utf8_lossy(&output.stdout)
-                                .trim()
-                                .parse::<u32>()
-                                .unwrap_or(0)
-                        }
-                        _ => {
+                    let shas = match crate::git_ops::resolve_git_range(&self.repo_path, range).await
+                    {
+                        Ok(shas) => shas,
+                        Err(e) => {
                             let _ = self
                                 .main_tx
                                 .send(Event::IngestionFailed {
                                     article_id: range.clone(),
-                                    error: "Failed to resolve git range count".to_string(),
+                                    error: format!("Failed to resolve git range: {}", e),
                                 })
                                 .await;
                             continue;
                         }
                     };
+                    let count = shas.len() as u32;
 
-                    if count == 0 {
-                        let _ = self
-                            .main_tx
-                            .send(Event::IngestionFailed {
-                                article_id: range.clone(),
-                                error: "Git range is empty".to_string(),
-                            })
-                            .await;
-                        continue;
-                    }
-
-                    // 2. Get list of SHAs
-                    let list_output = Command::new("git")
-                        .current_dir(&self.repo_path)
-                        .args(["-c", "safe.bareRepository=all"])
-                        .args(["rev-list", "--reverse", range])
-                        .output()
-                        .await;
-
-                    let shas = match list_output {
-                        Ok(output) if output.status.success() => {
-                            String::from_utf8_lossy(&output.stdout)
-                                .lines()
-                                .map(|s| s.to_string())
-                                .collect::<Vec<_>>()
-                        }
-                        _ => {
-                            let _ = self
-                                .main_tx
-                                .send(Event::IngestionFailed {
-                                    article_id: range.clone(),
-                                    error: "Failed to resolve git range SHAs".to_string(),
-                                })
-                                .await;
-                            continue;
-                        }
-                    };
-
-                    // 3. Process each SHA
+                    // Process each SHA
                     for (i, sha) in shas.iter().enumerate() {
                         match self.extract_patch(sha, range, (i + 1) as u32, count).await {
                             Ok(mut event) => {
@@ -467,80 +418,18 @@ impl FetchAgent {
         index: u32,
         total: u32,
     ) -> Result<Event> {
-        // Resolve parent to use as base_commit
-        let parent_output = Command::new("git")
-            .current_dir(&self.repo_path)
-            .args(["rev-parse", &format!("{}^", commit)])
-            .output()
-            .await?;
-
-        let base_commit = if parent_output.status.success() {
-            Some(
-                String::from_utf8_lossy(&parent_output.stdout)
-                    .trim()
-                    .to_string(),
-            )
-        } else {
-            warn!(
-                "Failed to resolve parent for {}, using commit as base",
-                commit
-            );
-            Some(commit.to_string())
-        };
-
-        // Format: AuthorName%nAuthorEmail%nSubject%nBody...%n---SASHIKO-END-HEADER---%nDiff...
-        let format = "format:%an%n%ae%n%s%n%b%n---SASHIKO-END-HEADER---%n";
-
-        let output = Command::new("git")
-            .current_dir(&self.repo_path)
-            .args(["show", &format!("--format={}", format), commit])
-            .output()
-            .await?;
-
-        if !output.status.success() {
-            return Err(anyhow!(
-                "git show failed: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            ));
-        }
-
-        let raw = String::from_utf8_lossy(&output.stdout).to_string();
-        let parts: Vec<&str> = raw.split("---SASHIKO-END-HEADER---\n").collect();
-
-        if parts.len() < 2 {
-            return Err(anyhow!("Failed to parse git show output structure"));
-        }
-
-        let header_part = parts[0];
-        let diff = parts[1..].join("---SASHIKO-END-HEADER---\n"); // Rejoin just in case
-
-        let mut lines = header_part.lines();
-        let author_name = lines.next().unwrap_or_default().trim();
-        let author_email = lines.next().unwrap_or("unknown@localhost").trim();
-        let subject = lines.next().unwrap_or("No Subject").trim();
-
-        // Body is the rest
-        let body: Vec<&str> = lines.collect();
-        let message = body.join("\n").trim().to_string();
-
-        let author = if author_name.is_empty() || author_name.to_lowercase() == "unknown" {
-            author_email.to_string()
-        } else {
-            format!("{} <{}>", author_name, author_email)
-        };
+        let meta = crate::git_ops::extract_patch_metadata(&self.repo_path, commit).await?;
 
         Ok(Event::PatchSubmitted {
             group: "git-fetch".to_string(),
             article_id: article_id.to_string(),
             message_id: String::new(), // Set by caller
-            subject: subject.to_string(),
-            author,
-            message,
-            diff,
-            base_commit,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)?
-                .as_secs() as i64,
+            subject: meta.subject,
+            author: meta.author,
+            message: meta.message,
+            diff: meta.diff,
+            base_commit: meta.base_commit,
+            timestamp: meta.timestamp,
             index,
             total,
         })
