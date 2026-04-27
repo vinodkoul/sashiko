@@ -640,42 +640,18 @@ async fn handle_show(
                                 }
                             }
 
-                            if let Some(r) = patch_review {
-                                let mut counts = std::collections::HashMap::new();
-                                if let Some(output_str) = r.get("output").and_then(|o| o.as_str())
-                                    && let Ok(output_json) = from_str::<Value>(output_str)
-                                    && let Some(findings) =
-                                        output_json.get("findings").and_then(|f| f.as_array())
-                                {
-                                    for f in findings {
-                                        if let Some(sev) =
-                                            f.get("severity").and_then(|s| s.as_str())
-                                        {
-                                            *counts.entry(sev.to_lowercase()).or_insert(0) += 1;
-                                        }
-                                    }
-                                }
-
-                                let c = counts.get("critical").copied().unwrap_or(0);
-                                let h = counts.get("high").copied().unwrap_or(0);
-                                let m = counts.get("medium").copied().unwrap_or(0);
-                                let l = counts.get("low").copied().unwrap_or(0);
-                                let has_findings = c > 0 || h > 0 || m > 0 || l > 0;
-                                if has_findings {
-                                    println!("Patch {}: {}", idx, subject);
-                                    println!(
-                                        "Critical: {} · High: {} · Medium: {} · Low: {}\n",
-                                        c, h, m, l
-                                    );
-                                    if let Some(inline) =
-                                        r.get("inline_review").and_then(|s| s.as_str())
-                                        && !inline.is_empty()
-                                        && inline != "No issues found."
-                                    {
-                                        println!("{}", inline.trim());
-                                    }
-                                    println!();
-                                }
+                            if let Some(r) = patch_review
+                                && let Some(output_str) = r.get("output").and_then(|o| o.as_str())
+                                && let Ok(output_json) = from_str::<Value>(output_str)
+                                && let Some(findings) =
+                                    output_json.get("findings").and_then(|f| f.as_array())
+                            {
+                                let inline = r.get("inline_review").and_then(|s| s.as_str());
+                                print_findings_summary(
+                                    &format!("Patch {}: {}", idx, subject),
+                                    findings,
+                                    inline,
+                                );
                             }
                         }
                     }
@@ -734,6 +710,44 @@ async fn handle_cancel(
     }
 
     Ok(())
+}
+
+/// Count finding severities from a findings JSON array.
+fn count_severities(findings: &[Value]) -> (usize, usize, usize, usize) {
+    let mut counts = std::collections::HashMap::new();
+    for f in findings {
+        if let Some(sev) = f.get("severity").and_then(|s| s.as_str()) {
+            *counts.entry(sev.to_lowercase()).or_insert(0) += 1;
+        }
+    }
+    (
+        counts.get("critical").copied().unwrap_or(0),
+        counts.get("high").copied().unwrap_or(0),
+        counts.get("medium").copied().unwrap_or(0),
+        counts.get("low").copied().unwrap_or(0),
+    )
+}
+
+/// Print a findings summary line with severity counts if any findings exist.
+/// Returns true if findings were printed.
+fn print_findings_summary(label: &str, findings: &[Value], inline_review: Option<&str>) -> bool {
+    let (c, h, m, l) = count_severities(findings);
+    if c == 0 && h == 0 && m == 0 && l == 0 {
+        return false;
+    }
+    println!("{}", label);
+    println!(
+        "Critical: {} · High: {} · Medium: {} · Low: {}\n",
+        c, h, m, l
+    );
+    if let Some(inline) = inline_review
+        && !inline.is_empty()
+        && inline != "No issues found."
+    {
+        println!("{}", inline.trim());
+    }
+    println!();
+    true
 }
 
 fn print_colored(color: Color, text: &str) {
