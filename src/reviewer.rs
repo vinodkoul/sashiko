@@ -713,14 +713,41 @@ impl Reviewer {
             let baseline_sha = match get_commit_hash(&repo_path, &baseline_ref).await {
                 Ok(sha) => sha,
                 Err(e) => {
-                    let msg = format!("Failed to resolve baseline ref {}: {}\n", baseline_ref, e);
-                    current_log.push_str(&msg);
-                    attempts.push(BaselineAttempt {
-                        baseline: baseline_ref.clone(),
-                        status: current_status,
-                        log: current_log,
-                    });
-                    continue;
+                    if let BaselineResolution::Commit(sha_str) = candidate {
+                        // Attempt to fetch the missing commit from origin
+                        let _ = Command::new("git")
+                            .current_dir(&repo_path)
+                            .args(["fetch", "origin", sha_str])
+                            .output()
+                            .await;
+                        // Retry resolving
+                        match get_commit_hash(&repo_path, &baseline_ref).await {
+                            Ok(sha) => sha,
+                            Err(e2) => {
+                                let msg = format!(
+                                    "Failed to resolve baseline ref {}: {}\n",
+                                    baseline_ref, e2
+                                );
+                                current_log.push_str(&msg);
+                                attempts.push(BaselineAttempt {
+                                    baseline: baseline_ref.clone(),
+                                    status: current_status,
+                                    log: current_log,
+                                });
+                                continue;
+                            }
+                        }
+                    } else {
+                        let msg =
+                            format!("Failed to resolve baseline ref {}: {}\n", baseline_ref, e);
+                        current_log.push_str(&msg);
+                        attempts.push(BaselineAttempt {
+                            baseline: baseline_ref.clone(),
+                            status: current_status,
+                            log: current_log,
+                        });
+                        continue;
+                    }
                 }
             };
 
