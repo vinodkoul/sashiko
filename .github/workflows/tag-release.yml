@@ -12,10 +12,8 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Setup Just
-        uses: extractions/setup-just@v4
       - name: Check Developer Certificate of Origin (S-O-B)
-        run: just sob "${{ github.sha }}~1..${{ github.sha }}"
+        run: make sob RANGE="${{ github.sha }}~1..${{ github.sha }}"
 
   lint:
     needs: check-sob
