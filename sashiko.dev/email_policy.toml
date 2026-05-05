@@ -37,6 +37,7 @@ cc = ["marek.lindner@mailbox.org", "sw@simonwunderlich.de", "antonio@mandelbit.c
 lists = ["bpf@vger.kernel.org"]
 reply_to_author = true
 cc = ["bpf@vger.kernel.org"]
+embargo_hours = 0
 
 [subsystems.damon]
 lists = ["damon@lists.linux.dev"]
