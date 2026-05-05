@@ -38,6 +38,7 @@ lists = ["bpf@vger.kernel.org"]
 reply_to_author = true
 cc = ["bpf@vger.kernel.org"]
 embargo_hours = 0
+subject_prefixes = ["bpf", "bpf-next"]
 
 [subsystems.damon]
 lists = ["damon@lists.linux.dev"]
@@ -52,6 +53,7 @@ cc = ["tytso@mit.edu"]
 [subsystems.net]
 lists = ["netdev@vger.kernel.org"]
 embargo_hours = 24
+subject_prefixes = ["net", "net-next"]
 
 [subsystems.cgroups]
 lists = ["cgroups@vger.kernel.org"]
