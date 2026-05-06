@@ -87,7 +87,17 @@ impl AiProvider for ClaudeCliProvider {
             }
         }
 
+        let raw = String::from_utf8_lossy(&output.stdout);
+
         if !output.status.success() {
+            // Try to extract the actual error message from the JSON output.
+            // The CLI emits a JSON object with is_error=true and the reason
+            // in the "result" field even when it exits non-zero.
+            if let Ok(outer) = serde_json::from_str::<Value>(&raw) {
+                if let Some(msg) = outer["result"].as_str() {
+                    anyhow::bail!("claude CLI error: {}", msg);
+                }
+            }
             let stderr = String::from_utf8_lossy(&output.stderr);
             anyhow::bail!(
                 "claude CLI exited with {}: {}",
@@ -95,8 +105,6 @@ impl AiProvider for ClaudeCliProvider {
                 stderr.trim()
             );
         }
-
-        let raw = String::from_utf8_lossy(&output.stdout);
         let outer: Value = serde_json::from_str(&raw).map_err(|e| {
             anyhow::anyhow!(
                 "Failed to parse claude CLI JSON output: {}\nRaw: {}",
