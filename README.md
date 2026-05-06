@@ -123,17 +123,20 @@ Running an automated review system like Sashiko can be computationally expensive
     [ai]
     provider = "claude"
     model = "claude-sonnet-4-6"
-    max_input_tokens = 950000
+    max_input_tokens = 40000
 
     [ai.claude]
     prompt_caching = true
+    # thinking = "enabled"    # Optional: enable extended thinking
+    # effort = "high"         # Optional: thinking effort level
     ```
 
     **Features**:
     - Automatic prompt caching (5-minute TTL) reduces costs for repeated context
     - Full tool/function calling support for git operations
     - Automatic retry logic for rate limits and API overload
-    - 1M context window for claude-sonnet-4-6 (use max_input_tokens = 950000 for safety margin)
+    - 200K context window for Claude models (use max_input_tokens = 40000 for cost-conscious defaults)
+    - Extended thinking support via `thinking` and `effort` settings
 
     ### AWS Bedrock Setup
 
@@ -157,7 +160,7 @@ Running an automated review system like Sashiko can be computationally expensive
     [ai]
     provider = "bedrock"
     model = "us.anthropic.claude-sonnet-4-6-20250514-v1:0"
-    max_input_tokens = 950000
+    max_input_tokens = 40000
 
     [ai.bedrock]
     region = "us-east-1"  # Optional, falls back to AWS SDK defaults
@@ -168,6 +171,43 @@ Running an automated review system like Sashiko can be computationally expensive
     - No API key needed — uses standard AWS IAM authentication
     - Supports cross-region inference profiles (e.g., `us.anthropic.claude-*`)
     - Full tool/function calling support for git operations
+
+    ### Google Cloud Vertex AI Setup
+
+    Sashiko supports Google Cloud Vertex AI, which provides access to Claude models (and potentially other model families) via Google Cloud infrastructure. Build with `--features vertex`.
+
+    **Prerequisites**: Enable the Vertex AI API and model access in the [Vertex AI Model Garden](https://cloud.google.com/model-garden) for your desired model and region.
+
+    **Configure GCP credentials**:
+    ```bash
+    gcloud auth application-default login
+    ```
+
+    **Configure environment**:
+    ```bash
+    export ANTHROPIC_VERTEX_PROJECT_ID="my-gcp-project"
+    export CLOUD_ML_REGION="us-east5"  # or "global" for global endpoints
+    ```
+
+    **Update Settings.toml**:
+    ```toml
+    [ai]
+    provider = "vertex"
+    model = "claude-sonnet-4-6"
+    max_input_tokens = 40000
+
+    [ai.vertex]
+    prompt_caching = true
+    # project_id = "my-gcp-project"  # Falls back to ANTHROPIC_VERTEX_PROJECT_ID
+    # region = "us-east5"            # Falls back to CLOUD_ML_REGION
+    ```
+
+    **Features**:
+    - Model-agnostic routing layer — currently supports Claude, extensible to other model families
+    - No API key needed — uses Google Cloud Application Default Credentials (ADC)
+    - Supports global, multi-region, and regional endpoints
+    - 1M context window for Claude Opus 4.7/4.6 and Sonnet 4.6 on Vertex
+    - Full tool/function calling and prompt caching support
 
 3.  **Build**:
     ```bash

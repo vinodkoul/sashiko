@@ -30,14 +30,33 @@ max_input_tokens = 900000
 max_interactions = 50
 temperature = 1.0
 
+# To use Claude API directly:
+# provider = "claude"
+# model = "claude-sonnet-4-6"
+# max_input_tokens = 40000
+# max_interactions = 50
+
 # To use Claude Code CLI (fixed-cost subscription, no API key needed):
 # provider = "claude-cli"
 # model = "claude-sonnet-4-6"
-# max_input_tokens = 180000
+# max_input_tokens = 40000
 # max_interactions = 150
+
+# To use Claude via Google Cloud Vertex AI (requires --features vertex):
+# provider = "vertex"
+# model = "claude-sonnet-4-6"
+# max_input_tokens = 40000
+# max_interactions = 50
 
 [ai.claude]
 prompt_caching = true
+# thinking = "enabled"    # Enable extended thinking (or "adaptive" for Sonnet 4.6+)
+# effort = "high"         # Thinking effort: "low", "medium", "high"
+
+# [ai.vertex]
+# project_id = "my-gcp-project"  # Or set ANTHROPIC_VERTEX_PROJECT_ID env var
+# region = "us-east5"            # Or set CLOUD_ML_REGION env var (default: "us-east5")
+# prompt_caching = true
 
 [server]
 host = "::"
