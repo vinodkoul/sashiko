@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -312,6 +312,37 @@ pub fn create_provider(settings: &Settings) -> Result<Arc<dyn AiProvider>> {
         "codex-cli" => Ok(Arc::new(codex_cli::CodexCliProvider {
             model: settings.ai.model.clone(),
         })),
+        #[cfg(feature = "vertex")]
+        "vertex" => {
+            let model = settings.ai.model.clone();
+            let vertex = settings.ai.vertex.as_ref();
+            let project_id = vertex
+                .and_then(|v| v.project_id.clone())
+                .or_else(|| std::env::var("ANTHROPIC_VERTEX_PROJECT_ID").ok())
+                .context(
+                    "Vertex AI requires project_id in [ai.vertex] \
+                     or ANTHROPIC_VERTEX_PROJECT_ID env var",
+                )?;
+            let region = vertex
+                .and_then(|v| v.region.clone())
+                .or_else(|| std::env::var("CLOUD_ML_REGION").ok())
+                .unwrap_or_else(|| "us-east5".to_string());
+            let enable_caching = vertex.map(|v| v.prompt_caching).unwrap_or(true);
+            let max_tokens = vertex.map(|v| v.max_tokens).unwrap_or(8192);
+            let thinking = vertex.and_then(|v| v.thinking.clone());
+            let effort = vertex.and_then(|v| v.effort.clone());
+            Ok(Arc::new(vertex::VertexClient::new(
+                model,
+                project_id,
+                region,
+                enable_caching,
+                max_tokens,
+                thinking,
+                effort,
+            )?))
+        }
+        #[cfg(not(feature = "vertex"))]
+        "vertex" => bail!("vertex provider requires the 'vertex' feature"),
         p => bail!("Unsupported AI provider: {}", p),
     }
 }
@@ -327,6 +358,8 @@ pub mod proxy;
 pub mod quota;
 pub mod token_budget;
 pub mod truncator;
+#[cfg(feature = "vertex")]
+pub mod vertex;
 
 /// Recursively removes `thought_signature` and `thoughtSignature` fields from a JSON value.
 pub fn scrub_thought_signatures(val: &mut serde_json::Value) {
