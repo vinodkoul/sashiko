@@ -278,7 +278,7 @@ impl ClaudeClient {
 
 // --- Translation Functions ---
 
-fn translate_ai_request(
+pub fn translate_ai_request(
     request: &AiRequest,
     enable_caching: bool,
     max_tokens: u32,
@@ -417,7 +417,7 @@ fn translate_ai_request(
     Ok(claude_request)
 }
 
-fn apply_cache_control(request: &mut ClaudeRequest) {
+pub fn apply_cache_control(request: &mut ClaudeRequest) {
     // Mark last system block for caching
     if let Some(system) = &mut request.system
         && let Some(last_block) = system.last_mut()
@@ -449,7 +449,7 @@ fn apply_cache_control(request: &mut ClaudeRequest) {
     }
 }
 
-fn translate_ai_response(resp: &ClaudeResponse) -> Result<AiResponse> {
+pub fn translate_ai_response(resp: &ClaudeResponse) -> Result<AiResponse> {
     let mut thought_signature = String::new();
     let mut content = String::new();
     let mut thought = String::new();
@@ -521,7 +521,7 @@ fn translate_ai_response(resp: &ClaudeResponse) -> Result<AiResponse> {
     })
 }
 
-fn estimate_tokens_generic(request: &AiRequest) -> usize {
+pub fn estimate_tokens_generic(request: &AiRequest) -> usize {
     use crate::ai::token_budget::TokenBudget;
 
     let mut total = 0;
