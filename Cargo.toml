@@ -7,6 +7,7 @@ default-run = "sashiko"
 [features]
 default = ["bedrock"]
 bedrock = ["aws-config", "aws-sdk-bedrockruntime", "aws-smithy-types"]
+vertex = ["google-cloud-auth"]
 
 [dependencies]
 anyhow = "1.0.100"
@@ -18,6 +19,7 @@ axum = "0.8.8"
 chrono = "0.4.43"
 clap = { version = "4.5.54", features = ["derive", "env"] }
 config = "0.15.19"
+google-cloud-auth = { version = "1.10", optional = true }
 fastrand = "2.3.0"
 flate2 = "1.1.9"
 futures = "0.3.31"

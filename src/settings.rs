@@ -153,6 +153,31 @@ fn default_prompt_caching() -> bool {
     true
 }
 
+#[cfg(feature = "vertex")]
+#[derive(Debug, Deserialize, Clone)]
+#[allow(unused)]
+pub struct VertexSettings {
+    /// GCP project ID. Falls back to ANTHROPIC_VERTEX_PROJECT_ID env var.
+    #[serde(default)]
+    pub project_id: Option<String>,
+    /// GCP region (e.g., "us-east5", "global"). Falls back to CLOUD_ML_REGION env var.
+    #[serde(default)]
+    pub region: Option<String>,
+    #[serde(default = "default_prompt_caching")]
+    pub prompt_caching: bool,
+    #[serde(default = "default_vertex_max_tokens")]
+    pub max_tokens: u32,
+    #[serde(default)]
+    pub thinking: Option<String>,
+    #[serde(default)]
+    pub effort: Option<String>,
+}
+
+#[cfg(feature = "vertex")]
+fn default_vertex_max_tokens() -> u32 {
+    8192
+}
+
 #[derive(Debug, Deserialize, Clone)]
 #[allow(unused)]
 pub struct OpenAiCompatSettings {
@@ -192,6 +217,8 @@ pub struct AiSettings {
     pub gemini: Option<GeminiSettings>,
     #[cfg(feature = "bedrock")]
     pub bedrock: Option<BedrockSettings>,
+    #[cfg(feature = "vertex")]
+    pub vertex: Option<VertexSettings>,
     pub openai_compat: Option<OpenAiCompatSettings>,
 }
 
