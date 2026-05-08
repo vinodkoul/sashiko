@@ -99,3 +99,8 @@ cc = ["dmitry.torokhov@gmail.com", "linux-input@vger.kernel.org"]
 lists = ["dmaengine@vger.kernel.org"]
 reply_to_author = true
 cc = ["vkoul@kernel.org", "Frank.Li@kernel.org", "dmaengine@vger.kernel.org"]
+
+[subsystems.linux-phy]
+lists = ["linux-phy@lists.infradead.org"]
+reply_to_author = true
+cc = ["vkoul@kernel.org", "neil.armstrong@linaro.org", "olteanv@gmail.com", "linux-phy@lists.infradead.org"]
