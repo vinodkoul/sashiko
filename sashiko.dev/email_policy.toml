@@ -94,3 +94,8 @@ cc = ["linux-watchdog@vger.kernel.org"]
 lists = ["linux-input@vger.kernel.org"]
 reply_to_author = true
 cc = ["dmitry.torokhov@gmail.com", "linux-input@vger.kernel.org"]
+
+[subsystems.dmaengine]
+lists = ["dmaengine@vger.kernel.org"]
+reply_to_author = true
+cc = ["vkoul@kernel.org", "Frank.Li@kernel.org", "dmaengine@vger.kernel.org"]
