@@ -476,20 +476,10 @@ fn score_definition_node(node: Node<'_>, sym: &str, source: &[u8]) -> i32 {
             }
             if has_body { 90 } else { 0 }
         }
-        "preproc_def" | "preproc_function_def" => {
-            if names_symbol("name") {
-                70
-            } else {
-                0
-            }
-        }
-        "type_definition" => {
-            if typedef_names_match(node, sym, source) {
-                80
-            } else {
-                0
-            }
-        }
+        "preproc_def" | "preproc_function_def" if names_symbol("name") => 70,
+        "preproc_def" | "preproc_function_def" => 0,
+        "type_definition" if typedef_names_match(node, sym, source) => 80,
+        "type_definition" => 0,
         _ => 0,
     }
 }

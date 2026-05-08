@@ -293,13 +293,24 @@ async fn main() -> Result<()> {
 
     if valid_metric_count > 0 {
         info!("--- Performance Metrics (averages per reviewed patch) ---");
-        info!("Avg Tokens In:  {}", total_tokens_in / valid_metric_count);
-        info!("Avg Tokens Out: {}", total_tokens_out / valid_metric_count);
+        info!(
+            "Avg Tokens In:  {}",
+            total_tokens_in.checked_div(valid_metric_count).unwrap_or(0)
+        );
+        info!(
+            "Avg Tokens Out: {}",
+            total_tokens_out
+                .checked_div(valid_metric_count)
+                .unwrap_or(0)
+        );
         info!(
             "Avg Turns:      {:.1}",
             total_turns as f64 / valid_metric_count as f64
         );
-        info!("Avg Time:       {}s", total_duration / valid_metric_count);
+        info!(
+            "Avg Time:       {}s",
+            total_duration.checked_div(valid_metric_count).unwrap_or(0)
+        );
     }
 
     info!("Detailed results written to benchmark_results.json");

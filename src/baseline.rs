@@ -485,7 +485,7 @@ impl BaselineRegistry {
         }
 
         // Sort descending by score
-        scored_candidates.sort_by(|a, b| b.0.cmp(&a.0));
+        scored_candidates.sort_by_key(|b| std::cmp::Reverse(b.0));
 
         let mut unique_filtered = Vec::new();
         for (_, res) in scored_candidates {
